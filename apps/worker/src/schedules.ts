@@ -1,4 +1,5 @@
 import type { Queue } from 'bullmq';
+import { prisma } from '@ai-coach/db';
 
 interface Queues {
   garminSync: Queue;
@@ -8,29 +9,32 @@ interface Queues {
   weeklyPlan: Queue;
 }
 
-export function setupSchedules(_queues: Queues): void {
-  // TODO: Activate in Phase 1/3
-  // Schedules use cron expressions
+async function getAllUserIds(): Promise<string[]> {
+  const users = await prisma.user.findMany({ select: { id: true } });
+  return users.map((u) => u.id);
+}
 
-  // Garmin sync - every 2 hours
-  // queues.garminSync.add('scheduled', {}, {
-  //   repeat: { pattern: '0 */2 * * *' }
-  // });
+export async function setupSchedules(queues: Queues): Promise<void> {
+  // Garmin sync — every 2 hours
+  await queues.garminSync.add(
+    'scheduled-all',
+    { triggerAllUsers: true },
+    { repeat: { pattern: '0 */2 * * *' }, jobId: 'garmin-sync-cron' },
+  );
 
-  // Calendar sync - every hour
-  // queues.calendarSync.add('scheduled', {}, {
-  //   repeat: { pattern: '0 * * * *' }
-  // });
+  // Strava sync — every 3 hours
+  await queues.stravaSync.add(
+    'scheduled-all',
+    { triggerAllUsers: true },
+    { repeat: { pattern: '0 */3 * * *' }, jobId: 'strava-sync-cron' },
+  );
 
-  // Morning report - 6:00 AM Prague time (UTC+1/+2)
-  // queues.morningReport.add('scheduled', {}, {
-  //   repeat: { pattern: '0 5 * * *' }  // 5:00 UTC = 6:00 CET
-  // });
+  // Calendar sync — every hour
+  await queues.calendarSync.add(
+    'scheduled-all',
+    { triggerAllUsers: true },
+    { repeat: { pattern: '0 * * * *' }, jobId: 'calendar-sync-cron' },
+  );
 
-  // Weekly plan - Sunday 20:00 Prague time
-  // queues.weeklyPlan.add('scheduled', {}, {
-  //   repeat: { pattern: '0 19 * * 0' }  // 19:00 UTC = 20:00 CET
-  // });
-
-  console.log('[schedules] Schedules registered (currently inactive)');
+  console.log('[schedules] All cron schedules registered');
 }

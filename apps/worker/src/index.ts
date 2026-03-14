@@ -1,5 +1,4 @@
-import { Worker, Queue, QueueEvents } from 'bullmq';
-import IORedis from 'ioredis';
+import { Worker, Queue } from 'bullmq';
 import { garminSyncJob } from './jobs/garmin-sync';
 import { stravaSyncJob } from './jobs/strava-sync';
 import { calendarSyncJob } from './jobs/calendar-sync';
@@ -9,9 +8,17 @@ import { setupSchedules } from './schedules';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-const connection = new IORedis(REDIS_URL, {
-  maxRetriesPerRequest: null, // Required by BullMQ
-});
+function parseRedisUrl(url: string) {
+  const u = new URL(url);
+  return {
+    host: u.hostname,
+    port: parseInt(u.port || '6379', 10),
+    password: u.password || undefined,
+    maxRetriesPerRequest: null as null,
+  };
+}
+
+const connection = parseRedisUrl(REDIS_URL);
 
 // Create queues
 const queues = {
@@ -51,6 +58,5 @@ console.log('🚀 Worker service started, listening for jobs...');
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down workers...');
   await Promise.all(workers.map((w) => w.close()));
-  await connection.quit();
   process.exit(0);
 });

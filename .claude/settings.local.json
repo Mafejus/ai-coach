@@ -3,7 +3,14 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npx prisma:*)",
-      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/ai_coach\" npx prisma validate --schema packages/db/prisma/schema.prisma 2>&1)"
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/ai_coach\" npx prisma validate --schema packages/db/prisma/schema.prisma 2>&1)",
+      "Bash(ls:*)",
+      "Bash(npm show:*)",
+      "Bash(node:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5433/ai_coach\" npx prisma migrate dev --schema packages/db/prisma/schema.prisma --name init 2>&1)",
+      "Bash(npx turbo:*)",
+      "Bash(cd:*)",
+      "Bash(npx next:*)"
     ]
   }
 }

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-coach/shared": "*"
+    "@ai-coach/shared": "*",
+    "garmin-connect": "^1.6.2"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

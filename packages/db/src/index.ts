@@ -1,2 +1,10 @@
 export { prisma } from './client';
-export type { PrismaClient } from './generated/client';
+export { Prisma, PrismaClient } from './generated/client';
+export type {
+  Sport,
+  DataSource,
+  WorkoutType,
+  PlanStatus,
+  InjurySeverity,
+  EventPriority,
+} from './generated/client';

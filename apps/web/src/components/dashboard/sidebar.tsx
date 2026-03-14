@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { Route } from 'next';
 import {
   LayoutDashboard,
   MessageSquare,
@@ -34,7 +35,7 @@ export function Sidebar() {
         {navItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
-            href={href}
+            href={href as Route}
             className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
           >
             <Icon className="h-4 w-4 shrink-0" />
