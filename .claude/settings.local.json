@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx prisma:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/ai_coach\" npx prisma validate --schema packages/db/prisma/schema.prisma 2>&1)"
+    ]
+  }
+}

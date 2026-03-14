@@ -1,0 +1,307 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Sport {
+  RUN
+  BIKE
+  SWIM
+  TRIATHLON
+  STRENGTH
+  OTHER
+}
+
+enum EventPriority {
+  MAIN
+  SECONDARY
+  TRAINING
+}
+
+enum DataSource {
+  GARMIN
+  STRAVA
+  MANUAL
+}
+
+enum PlanStatus {
+  DRAFT
+  ACTIVE
+  ADJUSTED
+  COMPLETED
+}
+
+enum InjurySeverity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum WorkoutType {
+  EASY
+  TEMPO
+  INTERVAL
+  LONG_RUN
+  RECOVERY
+  RACE_PACE
+  BRICK
+  OPEN_WATER
+  STRENGTH
+  REST
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String
+  passwordHash String?
+
+  timezone String @default("Europe/Prague")
+
+  maxHR          Int?
+  restHR         Int?
+  ftp            Int?
+  thresholdPace  Int?
+  swimCSS        Int?
+  weeklyHoursMax Float?
+
+  garminEmail  String?
+  garminPassword String?
+  stravaTokens Json?
+  googleTokens Json?
+  googleTokens2 Json?
+
+  pushSubscription Json?
+
+  morningReportTime String @default("06:00")
+  preferredUnits    String @default("metric")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events         Event[]
+  activities     Activity[]
+  healthMetrics  HealthMetric[]
+  trainingPlans  TrainingPlan[]
+  dailyReports   DailyReport[]
+  injuries       Injury[]
+  conversations  Conversation[]
+  calendarEvents CalendarEvent[]
+
+  @@map("users")
+}
+
+model Event {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name       String
+  sport      Sport
+  priority   EventPriority
+  date       DateTime
+  distance   Float?
+  swimDist   Float?
+  bikeDist   Float?
+  runDist    Float?
+  targetTime Int?
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+  @@map("events")
+}
+
+model Activity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  source          DataSource
+  externalId      String?
+  sport           Sport
+  workoutType     WorkoutType?
+  name            String?
+  date            DateTime
+  duration        Int
+  distance        Float?
+  avgHR           Int?
+  maxHR           Int?
+  avgPace         Float?
+  avgPower        Int?
+  normalizedPower Int?
+  trainingLoad    Float?
+  calories        Int?
+  elevationGain   Float?
+  avgCadence      Int?
+  poolLength      Int?
+  swolf           Float?
+
+  laps    Json?
+  rawData Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([source, externalId])
+  @@index([userId, date])
+  @@index([userId, sport, date])
+  @@map("activities")
+}
+
+model HealthMetric {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date DateTime @db.Date
+
+  sleepScore    Int?
+  sleepDuration Int?
+  deepSleep     Int?
+  remSleep      Int?
+  lightSleep    Int?
+  awakeDuration Int?
+  sleepStart    DateTime?
+  sleepEnd      DateTime?
+
+  restingHR   Int?
+  hrvStatus   Float?
+  hrvBaseline Float?
+
+  bodyBattery       Int?
+  bodyBatteryChange Int?
+  stressScore       Int?
+  trainingReadiness Int?
+  vo2max            Float?
+
+  spo2Avg Float?
+  spo2Min Float?
+
+  rawData Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("health_metrics")
+}
+
+model CalendarEvent {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  source     String
+  externalId String
+  title      String
+  startTime  DateTime
+  endTime    DateTime
+  isAllDay   Boolean  @default(false)
+  location   String?
+  category   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, externalId])
+  @@index([userId, startTime, endTime])
+  @@map("calendar_events")
+}
+
+model TrainingPlan {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  weekStart     DateTime   @db.Date
+  targetEventId String?
+  status        PlanStatus @default(DRAFT)
+
+  plan        Json
+  adjustments Json?
+
+  plannedHours Float?
+  plannedTSS   Float?
+  actualHours  Float?
+  actualTSS    Float?
+  compliance   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, weekStart])
+  @@index([userId, status])
+  @@map("training_plans")
+}
+
+model DailyReport {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date       DateTime @db.Date
+  report     Json
+  markdown   String
+  metricsUsed Json
+  aiModel    String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@map("daily_reports")
+}
+
+model Injury {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bodyPart    String
+  description String
+  severity    InjurySeverity
+  startDate   DateTime       @db.Date
+  endDate     DateTime?      @db.Date
+  active      Boolean        @default(true)
+
+  restrictions  Json?
+  progressNotes Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, active])
+  @@map("injuries")
+}
+
+model Conversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title      String?
+  messages   Json
+  tokenCount Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+  @@map("conversations")
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@ai-coach/strava",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-coach/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
