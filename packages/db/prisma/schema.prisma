@@ -90,6 +90,7 @@ model User {
 
   morningReportTime String @default("06:00")
   preferredUnits    String @default("metric")
+  onboardingCompleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,6 +103,7 @@ model User {
   injuries       Injury[]
   conversations  Conversation[]
   calendarEvents CalendarEvent[]
+  invitesCreated Invite[] @relation("InviteCreator")
 
   @@map("users")
 }
@@ -304,4 +306,18 @@ model Conversation {
 
   @@index([userId, updatedAt])
   @@map("conversations")
+}
+
+model Invite {
+  id        String    @id @default(cuid())
+  code      String    @unique @default(cuid())
+  createdBy String
+  creator   User      @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  usedBy    String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([code])
+  @@map("invites")
 }

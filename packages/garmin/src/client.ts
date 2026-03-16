@@ -63,8 +63,14 @@ export class GarminClient {
 
   async getUserSummary(date: string): Promise<GarminUserSummary> {
     await this.rateLimit();
-    // getUserSummary not available in this version — use getUserSettings as fallback
-    const data = await (this.gc as unknown as { getUserSettings: () => Promise<unknown> }).getUserSettings();
+    // Get display name from user profile, then fetch daily wellness summary
+    const profile = await (this.gc as unknown as { getUserProfile: () => Promise<{ displayName: string }> }).getUserProfile();
+    const displayName = profile?.displayName;
+    if (!displayName) throw new Error('Could not get Garmin display name');
+    const gcApi = 'https://connectapi.garmin.com';
+    const data = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
+      `${gcApi}/usersummary-service/usersummary/daily/${displayName}?calendarDate=${date}`
+    );
     return data as unknown as GarminUserSummary;
   }
 

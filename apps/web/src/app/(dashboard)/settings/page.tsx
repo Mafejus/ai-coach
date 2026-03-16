@@ -1,7 +1,44 @@
 'use client';
 
-import { useState } from 'react';
-import { Settings, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, CheckCircle, XCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+
+// ── Sync types ────────────────────────────────────────────────
+type SyncKey = 'garmin' | 'garmin/health' | 'strava' | 'calendar' | 'all';
+
+interface SyncResult {
+  success?: boolean;
+  error?: string;
+  total?: number;
+  healthUpdated?: number;
+  activitiesUpdated?: number;
+  eventsUpdated?: number;
+  garmin?: { success?: boolean; healthUpdated?: number; activitiesUpdated?: number; error?: string };
+  strava?: { success?: boolean; activitiesUpdated?: number; error?: string };
+  calendar?: { success?: boolean; eventsUpdated?: number; error?: string };
+}
+
+function syncSummary(key: SyncKey, result: SyncResult): string {
+  if (result.error) return `Chyba: ${result.error}`;
+  if (key === 'garmin/health') return `✓ ${result.healthUpdated ?? 0} zdravotních metrik`;
+  if (key === 'garmin') return `✓ ${result.healthUpdated ?? 0} zdravotních + ${result.activitiesUpdated ?? 0} aktivit`;
+  if (key === 'strava') return `✓ ${result.activitiesUpdated ?? 0} aktivit`;
+  if (key === 'calendar') return `✓ ${result.eventsUpdated ?? 0} událostí`;
+  if (key === 'all') {
+    const g = result.garmin;
+    const s = result.strava;
+    const c = result.calendar;
+    const parts = [];
+    if (g?.success) parts.push(`Garmin: ${(g.healthUpdated ?? 0) + (g.activitiesUpdated ?? 0)}`);
+    else if (g?.error) parts.push(`Garmin: chyba`);
+    if (s?.success) parts.push(`Strava: ${s.activitiesUpdated ?? 0}`);
+    else if (s?.error) parts.push(`Strava: chyba`);
+    if (c?.success) parts.push(`Kal: ${c.eventsUpdated ?? 0}`);
+    else if (c?.error) parts.push(`Kal: chyba`);
+    return `✓ ${parts.join(' · ')}`;
+  }
+  return '✓ Hotovo';
+}
 
 interface ProfileForm {
   maxHR: string;
@@ -27,6 +64,37 @@ export default function SettingsPage() {
   const [garmin, setGarmin] = useState({ email: '', password: '' });
   const [saving, setSaving] = useState<string | null>(null);
   const [status, setStatus] = useState<Record<string, 'ok' | 'error' | null>>({});
+  const [syncing, setSyncing] = useState<SyncKey | null>(null);
+  const [syncResults, setSyncResults] = useState<Partial<Record<SyncKey, SyncResult>>>({});
+
+  const [invites, setInvites] = useState<{ id: string; code: string; isValid: boolean; inviteUrl: string; usedAt: string | null; expiresAt: string }[]>([]);
+  const [loadingInvites, setLoadingInvites] = useState(false);
+  const [inviteCreating, setInviteCreating] = useState(false);
+  const [deduping, setDeduping] = useState(false);
+  const [dedupResult, setDedupResult] = useState<{ deleted: number; checked: number } | null>(null);
+  const [syncLog, setSyncLog] = useState<{ key: SyncKey; time: string; result: SyncResult }[]>([]);
+
+  const loadInvites = async () => {
+    setLoadingInvites(true);
+    try {
+      const res = await fetch('/api/invites');
+      if (res.ok) setInvites(await res.json());
+    } finally {
+      setLoadingInvites(false);
+    }
+  };
+
+  const createInvite = async () => {
+    setInviteCreating(true);
+    try {
+      const res = await fetch('/api/invites', { method: 'POST' });
+      if (res.ok) await loadInvites();
+    } finally {
+      setInviteCreating(false);
+    }
+  };
+
+  useEffect(() => { loadInvites(); }, []);
 
   const showStatus = (key: string, result: 'ok' | 'error') => {
     setStatus((s) => ({ ...s, [key]: result }));
@@ -84,6 +152,37 @@ export default function SettingsPage() {
       showStatus('garmin-test', 'error');
     } finally {
       setSaving(null);
+    }
+  };
+
+  const runSync = async (key: SyncKey) => {
+    setSyncing(key);
+    setSyncResults(r => ({ ...r, [key]: undefined }));
+    try {
+      const res = await fetch(`/api/sync/${key}`, { method: 'POST' });
+      const data = await res.json() as SyncResult;
+      setSyncResults(r => ({ ...r, [key]: data }));
+      setSyncLog(log => [{ key, time: new Date().toLocaleTimeString('cs-CZ'), result: data }, ...log].slice(0, 5));
+    } catch {
+      const err: SyncResult = { error: 'Síťová chyba' };
+      setSyncResults(r => ({ ...r, [key]: err }));
+      setSyncLog(log => [{ key, time: new Date().toLocaleTimeString('cs-CZ'), result: err }, ...log].slice(0, 5));
+    } finally {
+      setSyncing(null);
+    }
+  };
+
+  const runDeduplicate = async () => {
+    setDeduping(true);
+    setDedupResult(null);
+    try {
+      const res = await fetch('/api/admin/deduplicate', { method: 'POST' });
+      const data = await res.json() as { deleted: number; checked: number };
+      setDedupResult(data);
+    } catch {
+      setDedupResult(null);
+    } finally {
+      setDeduping(false);
     }
   };
 
@@ -147,7 +246,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Garmin */}
-        <div className="space-y-3 pt-2">
+        <div className="space-y-3 pt-2" id="garmin">
           <div>
             <p className="text-sm font-medium text-foreground">Garmin Connect</p>
             <p className="text-xs text-muted-foreground mb-2">Spánek, HRV, Body Battery, aktivity</p>
@@ -234,6 +333,126 @@ export default function SettingsPage() {
           Uložit profil
           <StatusIcon k="profile" />
         </button>
+      </div>
+
+      {/* Synchronizace dat */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <RefreshCw className="h-4 w-4 text-blue-400" />
+          <h2 className="font-semibold text-zinc-100">Synchronizace dat</h2>
+        </div>
+        <p className="text-xs text-zinc-400">Ručně spusť stažení dat z propojených služeb.</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {(
+            [
+              { key: 'garmin/health' as SyncKey, label: 'Sync Garmin Health', desc: 'Spánek, HRV, Body Battery, Stress za 14 dní', color: 'bg-blue-700 hover:bg-blue-800' },
+              { key: 'garmin' as SyncKey, label: 'Sync Garmin', desc: 'Health metriky + aktivity za 14 dní', color: 'bg-blue-600 hover:bg-blue-700' },
+              { key: 'strava' as SyncKey, label: 'Sync Strava', desc: 'Aktivity za posledních 30 dní', color: 'bg-orange-600 hover:bg-orange-700' },
+              { key: 'calendar' as SyncKey, label: 'Sync Kalendář', desc: 'Události na příštích 30 dní', color: 'bg-green-700 hover:bg-green-800' },
+              { key: 'all' as SyncKey, label: 'Sync vše', desc: 'Garmin + Strava + Kalendář', color: 'bg-zinc-600 hover:bg-zinc-500' },
+            ] as const
+          ).map(({ key, label, desc, color }) => {
+            const isRunning = syncing === key;
+            const result = syncResults[key];
+            return (
+              <div key={key} className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 space-y-2">
+                <div>
+                  <p className="text-sm font-medium text-zinc-100">{label}</p>
+                  <p className="text-xs text-zinc-400">{desc}</p>
+                </div>
+                {result && (
+                  <p className={`text-xs ${result.error ? 'text-red-400' : 'text-green-400'}`}>
+                    {syncSummary(key, result)}
+                  </p>
+                )}
+                <button
+                  onClick={() => runSync(key)}
+                  disabled={syncing !== null}
+                  className={`flex items-center gap-2 text-xs px-3 py-1.5 ${color} text-white rounded-md disabled:opacity-50 transition-colors`}
+                >
+                  {isRunning
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Probíhá...</>
+                    : <><RefreshCw className="h-3 w-3" />{label}</>
+                  }
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Sync log */}
+        {syncLog.length > 0 && (
+          <div className="mt-4 space-y-1">
+            <p className="text-xs text-zinc-500 font-medium">Poslední syncy</p>
+            {syncLog.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-zinc-400">
+                <span className="text-zinc-600">{entry.time}</span>
+                <span className="font-medium text-zinc-300">{entry.key}</span>
+                <span className={entry.result.error ? 'text-red-400' : 'text-green-400'}>
+                  {syncSummary(entry.key, entry.result)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Deduplicate */}
+        <div className="mt-4 pt-4 border-t border-zinc-700 flex items-center gap-3">
+          <button
+            onClick={runDeduplicate}
+            disabled={deduping}
+            className="flex items-center gap-2 text-xs px-3 py-1.5 bg-red-900 hover:bg-red-800 text-white rounded-md disabled:opacity-50 transition-colors"
+          >
+            {deduping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            Odstraň duplikáty aktivit
+          </button>
+          {dedupResult && (
+            <p className="text-xs text-zinc-400">
+              Zkontrolováno {dedupResult.checked} aktivit, smazáno {dedupResult.deleted} duplikátů
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Pozvánky */}
+      <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-foreground">Pozvat kamaráda</h2>
+          <button
+            onClick={createInvite}
+            disabled={inviteCreating}
+            className="flex items-center gap-2 text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
+          >
+            {inviteCreating && <Loader2 className="h-3 w-3 animate-spin" />}
+            + Nová pozvánka
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">Vygeneruj jednorázový odkaz pro kamaráda. Platí 7 dní.</p>
+        {loadingInvites ? (
+          <div className="h-8 bg-secondary rounded animate-pulse" />
+        ) : invites.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Zatím žádné pozvánky.</p>
+        ) : (
+          <div className="space-y-2">
+            {invites.map(inv => (
+              <div key={inv.id} className="flex items-center gap-3 p-2 bg-secondary/50 rounded-md">
+                <code className="text-xs text-foreground flex-1 truncate">{`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${inv.code}`}</code>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${inv.usedAt ? 'bg-green-500/20 text-green-400' : inv.isValid ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-500/20 text-zinc-400'}`}>
+                  {inv.usedAt ? 'Použita' : inv.isValid ? 'Aktivní' : 'Expirovaná'}
+                </span>
+                {inv.isValid && (
+                  <button
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}/invite/${inv.code}`)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Kopírovat
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

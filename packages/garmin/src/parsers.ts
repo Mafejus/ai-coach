@@ -29,29 +29,34 @@ export function parseActivitySport(typeKey: string | undefined): string {
 }
 
 export function parseSleepToHealthMetric(sleep: GarminSleepData): Record<string, unknown> {
+  const dto = sleep.dailySleepDTO;
   return {
-    sleepScore: sleep.sleepScores?.overall?.value ?? null,
-    sleepDuration: sleep.sleepTimeSeconds != null
-      ? Math.floor(sleep.sleepTimeSeconds / 60)
+    sleepScore: dto?.sleepScores?.overall?.value ?? null,
+    sleepDuration: dto?.sleepTimeSeconds != null
+      ? Math.floor(dto.sleepTimeSeconds / 60)
       : null,
-    deepSleep: sleep.deepSleepSeconds != null
-      ? Math.floor(sleep.deepSleepSeconds / 60)
+    deepSleep: dto?.deepSleepSeconds != null
+      ? Math.floor(dto.deepSleepSeconds / 60)
       : null,
-    lightSleep: sleep.lightSleepSeconds != null
-      ? Math.floor(sleep.lightSleepSeconds / 60)
+    lightSleep: dto?.lightSleepSeconds != null
+      ? Math.floor(dto.lightSleepSeconds / 60)
       : null,
-    remSleep: sleep.remSleepSeconds != null
-      ? Math.floor(sleep.remSleepSeconds / 60)
+    remSleep: dto?.remSleepSeconds != null
+      ? Math.floor(dto.remSleepSeconds / 60)
       : null,
-    awakeDuration: sleep.awakeSleepSeconds != null
-      ? Math.floor(sleep.awakeSleepSeconds / 60)
+    awakeDuration: dto?.awakeSleepSeconds != null
+      ? Math.floor(dto.awakeSleepSeconds / 60)
       : null,
-    sleepStart: sleep.sleepStartTimestampLocal
-      ? new Date(sleep.sleepStartTimestampLocal * 1000)
+    sleepStart: dto?.sleepStartTimestampLocal
+      ? new Date(dto.sleepStartTimestampLocal * 1000)
       : null,
-    sleepEnd: sleep.sleepEndTimestampLocal
-      ? new Date(sleep.sleepEndTimestampLocal * 1000)
+    sleepEnd: dto?.sleepEndTimestampLocal
+      ? new Date(dto.sleepEndTimestampLocal * 1000)
       : null,
+    // Additional fields available directly on SleepData
+    restingHR: sleep.restingHeartRate ?? null,
+    hrvStatus: sleep.avgOvernightHrv ?? null,
+    bodyBatteryChange: sleep.bodyBatteryChange ?? null,
   };
 }
 

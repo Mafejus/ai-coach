@@ -20,7 +20,7 @@ export async function POST() {
     return NextResponse.json({ error: 'Google Calendar not connected' }, { status: 400 });
   }
 
-  const timeMin = new Date();
+  const timeMin = addDays(new Date(), -30);
   const timeMax = addDays(new Date(), 30);
   let count = 0;
 

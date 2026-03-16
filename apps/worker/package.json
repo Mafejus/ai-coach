@@ -15,10 +15,14 @@
     "@ai-coach/shared": "*",
     "@ai-coach/strava": "*",
     "@ai-coach/calendar": "*",
-    "bullmq": "^5.0.0"
+    "@ai-sdk/google": "^1.0.0",
+    "ai": "^4.0.0",
+    "bullmq": "^5.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

@@ -1,0 +1,114 @@
+import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { prisma } from '@ai-coach/db';
+import { generateText } from 'ai';
+import { google } from '@ai-sdk/google';
+import { morningReportPrompt } from '@ai-coach/ai';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+export async function POST() {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = session.user.id;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  // Gather all data
+  const [healthMetric, planData, calendarData, injuriesData, eventsData, yesterdayActivity] =
+    await Promise.allSettled([
+      prisma.healthMetric.findFirst({ where: { userId, date: { gte: today, lt: tomorrow } } }),
+      prisma.trainingPlan.findFirst({
+        where: { userId, weekStart: { lte: today }, status: { in: ['ACTIVE', 'DRAFT'] } },
+        orderBy: { weekStart: 'desc' },
+      }),
+      prisma.calendarEvent.findMany({
+        where: { userId, startTime: { gte: today }, endTime: { lt: tomorrow } },
+        orderBy: { startTime: 'asc' },
+      }),
+      prisma.injury.findMany({ where: { userId, active: true } }),
+      prisma.event.findMany({
+        where: { userId, date: { gte: today } },
+        orderBy: { date: 'asc' },
+        take: 3,
+      }),
+      prisma.activity.findFirst({
+        where: { userId, date: { gte: yesterday, lt: today } },
+        orderBy: { date: 'desc' },
+      }),
+    ]);
+
+  const health = healthMetric.status === 'fulfilled' ? healthMetric.value : null;
+  const plan = planData.status === 'fulfilled' ? planData.value : null;
+  const calendar = calendarData.status === 'fulfilled' ? calendarData.value : [];
+  const injuries = injuriesData.status === 'fulfilled' ? injuriesData.value : [];
+  const events = eventsData.status === 'fulfilled' ? eventsData.value : [];
+  const yesterday_activity = yesterdayActivity.status === 'fulfilled' ? yesterdayActivity.value : null;
+
+  const promptText = morningReportPrompt({
+    health: health
+      ? {
+          sleepScore: health.sleepScore,
+          sleepDuration: health.sleepDuration,
+          bodyBattery: health.bodyBattery,
+          hrvStatus: health.hrvStatus,
+          hrvBaseline: health.hrvBaseline,
+          trainingReadiness: health.trainingReadiness,
+          restingHR: health.restingHR,
+        }
+      : null,
+    plan: plan ? { plan: plan.plan } : null,
+    calendar: calendar.map(e => ({
+      title: e.title,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      category: e.category,
+    })),
+    injuries: injuries.map(i => ({
+      bodyPart: i.bodyPart,
+      severity: i.severity,
+      description: i.description,
+    })),
+    events: events.map(e => ({
+      name: e.name,
+      date: e.date,
+      daysUntil: Math.ceil((e.date.getTime() - Date.now()) / 86400000),
+    })),
+    yesterday: yesterday_activity
+      ? {
+          sport: yesterday_activity.sport,
+          duration: yesterday_activity.duration,
+          distance: yesterday_activity.distance,
+          name: yesterday_activity.name,
+        }
+      : null,
+  });
+
+  const { text } = await generateText({
+    model: google('gemini-2.5-pro'),
+    prompt: promptText,
+  });
+
+  const metricsUsed = {
+    hasHealth: !!health,
+    hasPlan: !!plan,
+    calendarCount: calendar.length,
+    injuryCount: injuries.length,
+    eventCount: events.length,
+    hasYesterdayActivity: !!yesterday_activity,
+  };
+
+  const report = await prisma.dailyReport.upsert({
+    where: { userId_date: { userId, date: today } },
+    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
+    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
+  });
+
+  return NextResponse.json(report);
+}

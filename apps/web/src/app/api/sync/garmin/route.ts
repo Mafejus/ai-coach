@@ -34,13 +34,16 @@ export async function POST() {
     const client = new GarminClient(user.garminEmail, password);
     await client.authenticate();
 
-    const today = toISODate(new Date());
-    const yesterday = toISODate(new Date(Date.now() - 86400_000));
     let healthUpdated = 0;
     let activitiesUpdated = 0;
 
-    // Sync health metrics for yesterday + today
-    for (const date of [yesterday, today]) {
+    // Sync health metrics for last 14 days
+    const dates: string[] = [];
+    for (let i = 0; i < 14; i++) {
+      dates.push(toISODate(new Date(Date.now() - i * 86400_000)));
+    }
+
+    for (const date of dates) {
       try {
         const [sleep, hr, hrv, summary] = await Promise.allSettled([
           client.getSleepData(date),
@@ -69,25 +72,72 @@ export async function POST() {
       }
     }
 
-    // Sync recent activities (last 20)
+    // Sync recent activities (last 50 to cover 14 days)
     try {
-      const activities = await client.getActivities(0, 20);
+      const activities = await client.getActivities(0, 50);
       for (const raw of activities) {
         try {
           const parsed = parseGarminActivity(raw);
-          const data = {
-            ...parsed,
-            sport: parsed.sport as Sport,
-            rawData: (parsed.rawData ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-            laps: Prisma.JsonNull,
-            userId: session.user.id,
-          };
-          await prisma.activity.upsert({
-            where: { source_externalId: { source: 'GARMIN', externalId: parsed.externalId } },
-            update: data,
-            create: data,
-          });
-          activitiesUpdated++;
+
+          // Deduplication: check if a Strava activity exists for the same workout
+          // Match by date (±5 min) and distance (±10%)
+          const activityDate = new Date(raw.startTimeLocal);
+          const windowMs = 5 * 60 * 1000;
+          const stravaMatch = parsed.distance != null
+            ? await prisma.activity.findFirst({
+                where: {
+                  userId: session.user.id,
+                  source: 'STRAVA',
+                  date: {
+                    gte: new Date(activityDate.getTime() - windowMs),
+                    lte: new Date(activityDate.getTime() + windowMs),
+                  },
+                  distance: {
+                    gte: parsed.distance * 0.9,
+                    lte: parsed.distance * 1.1,
+                  },
+                },
+              })
+            : await prisma.activity.findFirst({
+                where: {
+                  userId: session.user.id,
+                  source: 'STRAVA',
+                  date: {
+                    gte: new Date(activityDate.getTime() - windowMs),
+                    lte: new Date(activityDate.getTime() + windowMs),
+                  },
+                },
+              });
+
+          if (stravaMatch) {
+            // Merge Garmin-specific metrics into the existing Strava activity
+            const stravaRaw = (stravaMatch.rawData as Record<string, unknown>) ?? {};
+            await prisma.activity.update({
+              where: { id: stravaMatch.id },
+              data: {
+                avgHR: stravaMatch.avgHR ?? parsed.avgHR,
+                maxHR: stravaMatch.maxHR ?? parsed.maxHR,
+                avgCadence: stravaMatch.avgCadence ?? parsed.avgCadence,
+                elevationGain: stravaMatch.elevationGain ?? parsed.elevationGain,
+                rawData: { ...stravaRaw, garminActivityId: parsed.externalId } as Prisma.InputJsonValue,
+              },
+            });
+            activitiesUpdated++;
+          } else {
+            const data = {
+              ...parsed,
+              sport: parsed.sport as Sport,
+              rawData: (parsed.rawData ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+              laps: Prisma.JsonNull,
+              userId: session.user.id,
+            };
+            await prisma.activity.upsert({
+              where: { source_externalId: { source: 'GARMIN', externalId: parsed.externalId } },
+              update: data,
+              create: data,
+            });
+            activitiesUpdated++;
+          }
         } catch (err) {
           console.error(`[sync/garmin] Activity upsert error:`, err);
         }
@@ -100,6 +150,7 @@ export async function POST() {
       success: true,
       healthUpdated,
       activitiesUpdated,
+      total: healthUpdated + activitiesUpdated,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {

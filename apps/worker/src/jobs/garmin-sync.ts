@@ -15,6 +15,8 @@ import { toISODate, addDays } from '@ai-coach/shared';
 interface GarminSyncJobData {
   userId: string;
   date?: string;
+  mode?: 'quick' | 'full';
+  triggerAllUsers?: boolean;
 }
 
 async function decryptPassword(encrypted: string): Promise<string> {
@@ -49,9 +51,20 @@ export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> 
   const client = new GarminClient(user.garminEmail, password);
   await client.authenticate();
 
-  const syncDate = date ?? toISODate(new Date());
+  const mode = job.data.mode ?? 'quick';
+  const today = toISODate(new Date());
   const yesterday = toISODate(new Date(Date.now() - 86400_000));
-  const dates = date ? [date] : [yesterday, syncDate];
+
+  // quick mode: today + yesterday only; full mode: last 14 days
+  let dates: string[];
+  if (date) {
+    dates = [date];
+  } else if (mode === 'full') {
+    dates = Array.from({ length: 14 }, (_, i) => toISODate(addDays(new Date(), -(i + 1)))).reverse();
+    dates.push(today);
+  } else {
+    dates = [yesterday, today];
+  }
 
   // Sync health metrics
   for (const d of dates) {

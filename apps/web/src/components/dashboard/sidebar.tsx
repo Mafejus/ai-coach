@@ -9,16 +9,20 @@ import {
   CalendarDays,
   AlertTriangle,
   Settings,
+  FileText,
+  Trophy,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/chat', label: 'AI Chat', icon: MessageSquare },
   { href: '/training', label: 'Trénink', icon: Calendar },
+  { href: '/events', label: 'Závody', icon: Trophy },
   { href: '/activities', label: 'Aktivity', icon: Activity },
   { href: '/health', label: 'Zdraví', icon: Heart },
   { href: '/calendar', label: 'Kalendář', icon: CalendarDays },
   { href: '/injuries', label: 'Zranění', icon: AlertTriangle },
+  { href: '/reports', label: 'Reporty', icon: FileText },
   { href: '/settings', label: 'Nastavení', icon: Settings },
 ];
 

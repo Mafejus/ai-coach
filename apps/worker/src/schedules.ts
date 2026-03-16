@@ -15,25 +15,47 @@ async function getAllUserIds(): Promise<string[]> {
 }
 
 export async function setupSchedules(queues: Queues): Promise<void> {
-  // Garmin sync — every 2 hours
+  // Garmin quick sync — every 5 minutes (today's data only)
   await queues.garminSync.add(
     'scheduled-all',
-    { triggerAllUsers: true },
-    { repeat: { pattern: '0 */2 * * *' }, jobId: 'garmin-sync-cron' },
+    { triggerAllUsers: true, mode: 'quick' },
+    { repeat: { pattern: '*/5 * * * *' }, jobId: 'garmin-quick-sync-cron' },
   );
 
-  // Strava sync — every 3 hours
+  // Garmin full sync — every 2 hours (last 14 days)
+  await queues.garminSync.add(
+    'scheduled-all',
+    { triggerAllUsers: true, mode: 'full' },
+    { repeat: { pattern: '0 */2 * * *' }, jobId: 'garmin-full-sync-cron' },
+  );
+
+  // Strava sync — every 30 minutes (rate-limited)
   await queues.stravaSync.add(
     'scheduled-all',
     { triggerAllUsers: true },
-    { repeat: { pattern: '0 */3 * * *' }, jobId: 'strava-sync-cron' },
+    { repeat: { pattern: '*/30 * * * *' }, jobId: 'strava-sync-cron' },
   );
 
-  // Calendar sync — every hour
+  // Calendar sync — every 15 minutes
   await queues.calendarSync.add(
     'scheduled-all',
     { triggerAllUsers: true },
-    { repeat: { pattern: '0 * * * *' }, jobId: 'calendar-sync-cron' },
+    { repeat: { pattern: '*/15 * * * *' }, jobId: 'calendar-sync-cron' },
+  );
+
+  // Morning report — every day at 6:00 AM
+  // We enqueue one job per user at 6:00
+  await queues.morningReport.add(
+    'morning-report-cron',
+    { triggerAllUsers: true },
+    { repeat: { pattern: '0 6 * * *' }, jobId: 'morning-report-cron' },
+  );
+
+  // Weekly plan — every Sunday at 20:00
+  await queues.weeklyPlan.add(
+    'weekly-plan-cron',
+    { triggerAllUsers: true },
+    { repeat: { pattern: '0 20 * * 0' }, jobId: 'weekly-plan-cron' },
   );
 
   console.log('[schedules] All cron schedules registered');

@@ -60,8 +60,13 @@ export async function POST() {
     const activities = await client.getActivities(after);
     let count = 0;
 
+    const STRAVA_CUTOFF = new Date('2026-03-06T23:59:59Z');
+
     for (const raw of activities) {
       try {
+        // Skip Strava activities after cutoff — Garmin is primary source from that date on
+        if (new Date(raw.start_date as string) > STRAVA_CUTOFF) continue;
+
         const parsed = parseStravaActivity(raw);
         const data = {
           ...parsed,

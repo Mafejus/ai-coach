@@ -10,7 +10,8 @@
       "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5433/ai_coach\" npx prisma migrate dev --schema packages/db/prisma/schema.prisma --name init 2>&1)",
       "Bash(npx turbo:*)",
       "Bash(cd:*)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(cat:*)"
     ]
   }
 }

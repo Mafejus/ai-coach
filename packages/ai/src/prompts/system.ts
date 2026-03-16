@@ -22,7 +22,7 @@ interface AgentInjury {
   bodyPart: string;
   description: string;
   severity: string;
-  restrictions?: Record<string, unknown> | null;
+  restrictions?: unknown;
 }
 
 interface AgentContext {
