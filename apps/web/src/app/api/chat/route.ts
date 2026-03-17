@@ -1,6 +1,9 @@
 import { streamText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { NextRequest } from 'next/server';
+
+// @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY by default — we use GOOGLE_AI_API_KEY
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { auth } from '@/lib/auth';
 import { prisma } from '@ai-coach/db';
 import { buildSystemPrompt, createCoachTools } from '@ai-coach/ai';
@@ -21,7 +24,7 @@ export async function POST(req: NextRequest) {
   };
 
   // Load user profile and context
-  const [user, events, injuries] = await Promise.all([
+  const [user, events, injuries, latestHealth, recentActivities] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.event.findMany({
       where: { userId, date: { gte: new Date() } },
@@ -29,9 +32,43 @@ export async function POST(req: NextRequest) {
       take: 5,
     }),
     prisma.injury.findMany({ where: { userId, active: true } }),
+    prisma.healthMetric.findFirst({
+      where: { userId },
+      orderBy: { date: 'desc' },
+    }),
+    prisma.activity.findMany({
+      where: { userId, date: { gte: new Date(Date.now() - 7 * 86400000) } },
+      orderBy: { date: 'desc' },
+      take: 10,
+    }),
   ]);
 
-  const systemPrompt = buildSystemPrompt(user, { events, injuries });
+  const systemPrompt = buildSystemPrompt(user, {
+    events,
+    injuries,
+    health: latestHealth ? {
+      date: latestHealth.date?.toISOString()?.split('T')[0] ?? '',
+      sleepScore: latestHealth.sleepScore,
+      sleepDuration: latestHealth.sleepDuration,
+      bodyBattery: latestHealth.bodyBattery,
+      bodyBatteryChange: latestHealth.bodyBatteryChange,
+      hrvStatus: latestHealth.hrvStatus,
+      restingHR: latestHealth.restingHR,
+      trainingReadiness: latestHealth.trainingReadiness,
+    } : null,
+    activities: recentActivities.map(a => ({
+      date: a.date?.toISOString()?.split('T')[0] ?? '',
+      sport: a.sport,
+      duration: a.duration,
+      distance: a.distance,
+      trainingLoad: a.trainingLoad,
+      avgHR: a.avgHR,
+      avgPace: a.avgPace,
+      aerobicTE: (a.rawData as any)?.garminRaw?.aerobicTrainingEffect ?? (a.rawData as any)?.aerobicTrainingEffect,
+      anaerobicTE: (a.rawData as any)?.garminRaw?.anaerobicTrainingEffect ?? (a.rawData as any)?.anaerobicTrainingEffect,
+      name: a.name,
+    })),
+  });
   const tools = createCoachTools(userId);
 
   // Upsert conversation
@@ -44,7 +81,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.5-flash'),
     system: systemPrompt,
     messages,
     tools,
@@ -60,7 +97,7 @@ export async function POST(req: NextRequest) {
       if (userMessages.length === 2) {
         try {
           const titleResult = await streamText({
-            model: google('gemini-2.5-flash-preview-04-17' as Parameters<typeof google>[0]),
+            model: google('gemini-2.5-flash'),
             messages: [
               {
                 role: 'user',

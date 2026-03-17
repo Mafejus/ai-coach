@@ -23,7 +23,7 @@ async function generateInjuryRestrictions(
     const { z } = await import('zod');
 
     const { object } = await generateObject({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-2.5-flash'),
       schema: z.object({
         avoidSports: z.array(z.string()),
         avoidMovements: z.array(z.string()),

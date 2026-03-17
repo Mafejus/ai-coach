@@ -74,6 +74,8 @@ export default function SettingsPage() {
   const [dedupResult, setDedupResult] = useState<{ deleted: number; checked: number } | null>(null);
   const [syncLog, setSyncLog] = useState<{ key: SyncKey; time: string; result: SyncResult }[]>([]);
 
+  const [lastSync, setLastSync] = useState<string | null>(null);
+ 
   const loadInvites = async () => {
     setLoadingInvites(true);
     try {
@@ -84,6 +86,18 @@ export default function SettingsPage() {
     }
   };
 
+  const loadLastSync = async () => {
+    try {
+      const res = await fetch('/api/health/metrics?take=1');
+      const data = await res.json();
+      if (data && data.length > 0) {
+        setLastSync(data[0].updatedAt || data[0].createdAt);
+      }
+    } catch (e) {
+      console.error('Failed to load last sync', e);
+    }
+  };
+ 
   const createInvite = async () => {
     setInviteCreating(true);
     try {
@@ -93,8 +107,11 @@ export default function SettingsPage() {
       setInviteCreating(false);
     }
   };
-
-  useEffect(() => { loadInvites(); }, []);
+ 
+  useEffect(() => { 
+    loadInvites();
+    loadLastSync();
+  }, []);
 
   const showStatus = (key: string, result: 'ok' | 'error') => {
     setStatus((s) => ({ ...s, [key]: result }));
@@ -341,7 +358,14 @@ export default function SettingsPage() {
           <RefreshCw className="h-4 w-4 text-blue-400" />
           <h2 className="font-semibold text-zinc-100">Synchronizace dat</h2>
         </div>
-        <p className="text-xs text-zinc-400">Ručně spusť stažení dat z propojených služeb.</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-zinc-400">Ručně spusť stažení dat z propojených služeb.</p>
+          {lastSync && (
+            <p className="text-[10px] text-zinc-500 uppercase">
+              Poslední sync: {new Date(lastSync).toLocaleString('cs-CZ')}
+            </p>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {(

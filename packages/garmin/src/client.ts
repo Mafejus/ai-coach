@@ -9,6 +9,9 @@ import type {
   GarminHRVData,
   GarminUserSummary,
   GarminActivity,
+  GarminActivityDetails,
+  GarminActivitySplits,
+  GarminDailyHeartRate,
 } from './types';
 
 const RATE_LIMIT_MS = 2000;
@@ -20,6 +23,7 @@ function sleep(ms: number) {
 export class GarminClient {
   private gc: GarminConnect;
   private lastRequestAt = 0;
+  private displayName: string | null = null;
 
   constructor(private readonly email: string, private readonly password: string) {
     this.gc = new GarminConnect({ username: email, password });
@@ -36,6 +40,22 @@ export class GarminClient {
 
   async authenticate(): Promise<void> {
     await this.gc.login(this.email, this.password);
+    // Cache display name right after login
+    try {
+      const profile = await (this.gc as unknown as { getUserProfile: () => Promise<{ displayName: string }> }).getUserProfile();
+      this.displayName = profile?.displayName ?? null;
+      console.log('[GarminClient] Authenticated, displayName:', this.displayName);
+    } catch {
+      console.warn('[GarminClient] Could not fetch display name after login');
+    }
+  }
+
+  private async getDisplayName(): Promise<string> {
+    if (this.displayName) return this.displayName;
+    const profile = await (this.gc as unknown as { getUserProfile: () => Promise<{ displayName: string }> }).getUserProfile();
+    this.displayName = profile?.displayName;
+    if (!this.displayName) throw new Error('Could not get Garmin display name');
+    return this.displayName;
   }
 
   async getSleepData(date: string): Promise<GarminSleepData> {
@@ -53,7 +73,10 @@ export class GarminClient {
   async getHRVData(date: string): Promise<GarminHRVData> {
     await this.rateLimit();
     try {
-      const data = await (this.gc as unknown as { getHRVData: (d: Date) => Promise<unknown> }).getHRVData(new Date(date));
+      // garmin-connect library doesn't have getHRVData — use raw endpoint
+      const data = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
+        `https://connectapi.garmin.com/hrv-service/hrv/${date}`
+      );
       return data as GarminHRVData;
     } catch {
       // HRV data not always available
@@ -63,13 +86,9 @@ export class GarminClient {
 
   async getUserSummary(date: string): Promise<GarminUserSummary> {
     await this.rateLimit();
-    // Get display name from user profile, then fetch daily wellness summary
-    const profile = await (this.gc as unknown as { getUserProfile: () => Promise<{ displayName: string }> }).getUserProfile();
-    const displayName = profile?.displayName;
-    if (!displayName) throw new Error('Could not get Garmin display name');
-    const gcApi = 'https://connectapi.garmin.com';
+    const displayName = await this.getDisplayName();
     const data = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
-      `${gcApi}/usersummary-service/usersummary/daily/${displayName}?calendarDate=${date}`
+      `https://connectapi.garmin.com/usersummary-service/usersummary/daily/${displayName}?calendarDate=${date}`
     );
     return data as unknown as GarminUserSummary;
   }
@@ -80,14 +99,37 @@ export class GarminClient {
     return (Array.isArray(data) ? data : []) as unknown as GarminActivity[];
   }
 
-  async getActivityDetails(activityId: number): Promise<GarminActivity> {
+  async getActivityDetails(activityId: number): Promise<GarminActivityDetails> {
     await this.rateLimit();
-    const data = await this.gc.getActivity({ activityId } as unknown as Parameters<typeof this.gc.getActivity>[0]);
-    return data as unknown as GarminActivity;
+    try {
+      const details = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
+        `https://connectapi.garmin.com/activity-service/activity/${activityId}/details?maxChartSize=2000&maxPolylineSize=2000`
+      );
+      return details as GarminActivityDetails;
+    } catch {
+      return {};
+    }
   }
 
-  async getTrainingStatus(date: string): Promise<GarminUserSummary> {
-    // Training status included in user summary
-    return this.getUserSummary(date);
+  async getActivitySplits(activityId: number): Promise<GarminActivitySplits> {
+    await this.rateLimit();
+    try {
+      const splits = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
+        `https://connectapi.garmin.com/activity-service/activity/${activityId}/splits`
+      );
+      return splits as GarminActivitySplits;
+    } catch {
+      return {};
+    }
+  }
+
+  async getDailyHeartRate(date: string): Promise<GarminDailyHeartRate> {
+    await this.rateLimit();
+    try {
+      const data = await this.gc.getHeartRate(new Date(date));
+      return data as unknown as GarminDailyHeartRate;
+    } catch {
+      return { calendarDate: date };
+    }
   }
 }

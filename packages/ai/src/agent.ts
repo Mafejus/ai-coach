@@ -1,5 +1,7 @@
 import { streamText, generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { prisma } from '@ai-coach/db';
 import { buildSystemPrompt } from './prompts/system';
 import { createCoachTools } from './tools';
@@ -36,7 +38,7 @@ export async function runCoachAgent({ userId, messages, conversationId, stream =
 
   if (stream) {
     return streamText({
-      model: google('gemini-2.5-pro'),
+      model: google('gemini-2.5-flash'),
       system: systemPrompt,
       messages,
       tools,
@@ -57,7 +59,7 @@ export async function runCoachAgent({ userId, messages, conversationId, stream =
   }
 
   return generateText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.5-flash'),
     system: systemPrompt,
     messages,
     tools,

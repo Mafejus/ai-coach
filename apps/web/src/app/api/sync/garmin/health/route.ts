@@ -9,6 +9,7 @@ import {
   parseUserSummaryToHealthMetric,
   mergeHealthMetrics,
 } from '@ai-coach/garmin';
+import { Prisma } from '@ai-coach/db';
 import { decrypt } from '@/lib/encryption';
 import { toISODate } from '@ai-coach/shared';
 
@@ -41,26 +42,63 @@ export async function POST() {
 
     for (const date of dates) {
       try {
-        const [sleep, hr, hrv, summary] = await Promise.allSettled([
-          client.getSleepData(date),
-          client.getHeartRate(date),
-          client.getHRVData(date),
-          client.getUserSummary(date),
-        ]);
-
         const parts: Record<string, unknown>[] = [];
-        if (sleep.status === 'fulfilled') parts.push(parseSleepToHealthMetric(sleep.value));
-        if (hr.status === 'fulfilled') parts.push(parseHRToHealthMetric(hr.value));
-        if (hrv.status === 'fulfilled') parts.push(parseHRVToHealthMetric(hrv.value));
-        if (summary.status === 'fulfilled') parts.push(parseUserSummaryToHealthMetric(summary.value));
+        const rawData: Record<string, unknown> = {};
+
+        // Sequential calls to respect Garmin rate limit (2s between requests)
+
+        // 1. Sleep
+        try {
+          const sleepData = await client.getSleepData(date);
+          console.log(`[sync/garmin/health] Sleep raw ${date}:`, JSON.stringify(sleepData).substring(0, 500));
+          rawData.sleep = sleepData;
+          parts.push(parseSleepToHealthMetric(sleepData));
+        } catch (e) {
+          console.error(`[sync/garmin/health] Sleep failed ${date}:`, (e as Error).message);
+        }
+
+        // 2. Heart rate
+        try {
+          const hrData = await client.getHeartRate(date);
+          console.log(`[sync/garmin/health] HR raw ${date}:`, JSON.stringify(hrData).substring(0, 300));
+          rawData.heartRate = hrData;
+          parts.push(parseHRToHealthMetric(hrData));
+        } catch (e) {
+          console.error(`[sync/garmin/health] HR failed ${date}:`, (e as Error).message);
+        }
+
+        // 3. HRV (via raw endpoint hrv-service/hrv/DATE)
+        try {
+          const hrvData = await client.getHRVData(date);
+          console.log(`[sync/garmin/health] HRV raw ${date}:`, JSON.stringify(hrvData).substring(0, 300));
+          rawData.hrv = hrvData;
+          parts.push(parseHRVToHealthMetric(hrvData));
+        } catch (e) {
+          console.error(`[sync/garmin/health] HRV failed ${date}:`, (e as Error).message);
+        }
+
+        // 4. User summary (Body Battery, Stress, Resting HR — via usersummary-service endpoint)
+        try {
+          const summaryData = await client.getUserSummary(date);
+          console.log(`[sync/garmin/health] Summary raw ${date}:`, JSON.stringify(summaryData).substring(0, 500));
+          rawData.userSummary = summaryData;
+          parts.push(parseUserSummaryToHealthMetric(summaryData));
+        } catch (e) {
+          console.error(`[sync/garmin/health] Summary failed ${date}:`, (e as Error).message);
+        }
 
         if (parts.length > 0) {
           const merged = mergeHealthMetrics(...parts);
+          const upsertData = {
+            ...merged,
+            rawData: rawData as Prisma.InputJsonValue,
+          };
           await prisma.healthMetric.upsert({
             where: { userId_date: { userId: session.user.id, date: new Date(date) } },
-            update: merged,
-            create: { userId: session.user.id, date: new Date(date), ...merged },
+            update: upsertData,
+            create: { userId: session.user.id, date: new Date(date), ...upsertData },
           });
+          console.log(`[sync/garmin/health] Saved for ${date}:`, Object.keys(merged).join(', '));
           healthUpdated++;
         }
       } catch (err) {

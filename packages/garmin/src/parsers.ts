@@ -48,13 +48,17 @@ export function parseSleepToHealthMetric(sleep: GarminSleepData): Record<string,
       ? Math.floor(dto.awakeSleepSeconds / 60)
       : null,
     sleepStart: dto?.sleepStartTimestampLocal
-      ? new Date(dto.sleepStartTimestampLocal * 1000)
+      ? new Date(dto.sleepStartTimestampLocal)
       : null,
     sleepEnd: dto?.sleepEndTimestampLocal
-      ? new Date(dto.sleepEndTimestampLocal * 1000)
+      ? new Date(dto.sleepEndTimestampLocal)
       : null,
-    // Additional fields available directly on SleepData
+    // SpO2 during sleep
+    spo2Avg: dto?.averageSpO2Value ?? null,
+    spo2Min: dto?.lowestSpO2Value ?? null,
+    // Resting HR from sleep data (also available)
     restingHR: sleep.restingHeartRate ?? null,
+    // HRV overnight from sleep
     hrvStatus: sleep.avgOvernightHrv ?? null,
     bodyBatteryChange: sleep.bodyBatteryChange ?? null,
   };
@@ -67,8 +71,11 @@ export function parseHRToHealthMetric(hr: GarminHeartRateData): Record<string, u
 }
 
 export function parseHRVToHealthMetric(hrv: GarminHRVData): Record<string, unknown> {
+  // API returns lastNightAvg (not lastNight)
+  const lastNightAvg = hrv.hrvSummary?.lastNightAvg ?? null;
+  const weeklyAvg = hrv.hrvSummary?.weeklyAvg ?? null;
   return {
-    hrvStatus: hrv.hrvSummary?.lastNight ?? hrv.hrvSummary?.weeklyAvg ?? null,
+    hrvStatus: lastNightAvg ?? weeklyAvg,
     hrvBaseline: hrv.hrvSummary?.baseline?.balancedLow ?? null,
   };
 }
@@ -76,8 +83,12 @@ export function parseHRVToHealthMetric(hrv: GarminHRVData): Record<string, unkno
 export function parseUserSummaryToHealthMetric(summary: GarminUserSummary): Record<string, unknown> {
   return {
     bodyBattery: summary.bodyBatteryMostRecentValue ?? null,
-    bodyBatteryChange: null,
+    bodyBatteryChange: summary.bodyBatteryChargedValue ?? null,
     stressScore: summary.averageStressLevel ?? null,
+    restingHR: summary.restingHeartRate ?? null,
+    spo2Avg: summary.averageSpo2 ?? null,
+    spo2Min: summary.lowestSpo2 ?? null,
+    // trainingReadinessScore is NOT available in the daily summary endpoint for this account
     trainingReadiness: summary.trainingReadinessScore ?? null,
     vo2max: summary.vo2MaxValue ?? null,
   };
@@ -118,6 +129,9 @@ export function parseGarminActivity(activity: GarminActivity) {
     calories: activity.calories ?? null,
     elevationGain: activity.elevationGain ?? null,
     avgCadence: activity.averageCadence ?? null,
+    aerobicTrainingEffect: activity.aerobicTrainingEffect ?? null,
+    anaerobicTrainingEffect: activity.anaerobicTrainingEffect ?? null,
+    trainingLoad: activity.trainingStressScore ?? activity.trainingLoad ?? null,
     rawData: activity as unknown as Record<string, unknown>,
   };
 }

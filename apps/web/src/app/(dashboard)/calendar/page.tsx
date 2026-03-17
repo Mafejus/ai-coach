@@ -42,9 +42,16 @@ export default function CalendarPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const toLocalDateStr = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
   const getEventsForDay = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    return events.filter(e => e.startTime.split('T')[0] === dateStr);
+    const dateStr = toLocalDateStr(date);
+    return events.filter(e => toLocalDateStr(new Date(e.startTime)) === dateStr);
   };
 
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });

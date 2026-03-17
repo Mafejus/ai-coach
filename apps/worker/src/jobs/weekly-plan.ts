@@ -2,7 +2,9 @@ import type { Job } from 'bullmq';
 import { prisma, Prisma } from '@ai-coach/db';
 import type { PlanStatus } from '@ai-coach/db';
 import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { weeklyPlanPrompt } from '@ai-coach/ai';
 import { getMonday } from '@ai-coach/shared';
 
@@ -134,7 +136,7 @@ export async function weeklyPlanJob(job: Job<WeeklyPlanJobData>): Promise<void> 
   });
 
   const { text } = await generateText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.5-flash'),
     prompt: promptText,
   });
 

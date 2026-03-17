@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Activity, Filter } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Activity } from 'lucide-react';
 import { formatDuration } from '@ai-coach/shared';
 
 type SportFilter = 'ALL' | 'RUN' | 'BIKE' | 'SWIM' | 'STRENGTH';
@@ -46,12 +47,12 @@ function getLoadLabel(load: number | null): { label: string; color: string } {
 }
 
 export default function ActivitiesPage() {
+  const router = useRouter();
   const [sport, setSport] = useState<SportFilter>('ALL');
   const [period, setPeriod] = useState<PeriodFilter>('30');
   const [source, setSource] = useState<SourceFilter>('ALL');
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<ActivityItem | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -140,7 +141,7 @@ export default function ActivitiesPage() {
             return (
               <button
                 key={a.id}
-                onClick={() => setSelected(a)}
+                onClick={() => router.push(`/activities/${a.id}`)}
                 className="w-full flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-colors text-left"
               >
                 <span className="text-2xl">{SPORT_ICONS[a.sport] ?? '⚡'}</span>
@@ -169,41 +170,6 @@ export default function ActivitiesPage() {
         </div>
       )}
 
-      {/* Activity detail modal */}
-      {selected && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setSelected(null)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{SPORT_ICONS[selected.sport] ?? '⚡'}</span>
-                <div>
-                  <h3 className="font-semibold text-zinc-100">{selected.name ?? selected.sport}</h3>
-                  <p className="text-xs text-zinc-400">{new Date(selected.date).toLocaleDateString('cs-CZ')}</p>
-                </div>
-              </div>
-              <button onClick={() => setSelected(null)} className="text-zinc-400 hover:text-zinc-100 text-xl">×</button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Čas', value: formatDuration(selected.duration) },
-                { label: 'Vzdálenost', value: selected.distance ? `${(selected.distance / 1000).toFixed(2)} km` : '—' },
-                { label: 'Průměrná HR', value: selected.avgHR ? `${selected.avgHR} bpm` : '—' },
-                { label: 'Tempo/Pace', value: formatPaceDisplay(selected.avgPace, selected.sport) },
-                { label: 'Výkon', value: selected.avgPower ? `${selected.avgPower}W` : '—' },
-                { label: 'Kalorie', value: selected.calories ? `${selected.calories} kcal` : '—' },
-              ].map(({ label, value }) => (
-                <div key={label} className="bg-zinc-800/50 rounded-lg p-3">
-                  <p className="text-xs text-zinc-400">{label}</p>
-                  <p className="text-sm font-medium text-zinc-100 mt-0.5">{value}</p>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-zinc-500 text-right">
-              Zdroj: {selected.rawData?.garminActivityId ? 'Garmin + Strava' : selected.source}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

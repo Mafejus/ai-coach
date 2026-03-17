@@ -11,7 +11,9 @@
       "Bash(npx turbo:*)",
       "Bash(cd:*)",
       "Bash(npx next:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npx tsx:*)",
+      "Bash(rm:*)"
     ]
   }
 }

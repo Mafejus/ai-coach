@@ -5,14 +5,12 @@ import { classifyEventCategory } from '@ai-coach/calendar';
 import { addDays } from '@ai-coach/shared';
 
 interface CalendarSyncJobData {
-  userId: string;
+  userId?: string;
+  triggerAllUsers?: boolean;
   daysAhead?: number;
 }
 
-export async function calendarSyncJob(job: Job<CalendarSyncJobData>): Promise<void> {
-  const { userId, daysAhead = 30 } = job.data;
-  console.log(`[${new Date().toISOString()}] [calendar-sync] Starting for user ${userId}`);
-
+async function syncCalendarForUser(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { googleTokens: true, googleTokens2: true },
@@ -23,8 +21,9 @@ export async function calendarSyncJob(job: Job<CalendarSyncJobData>): Promise<vo
     return;
   }
 
-  const timeMin = new Date();
-  const timeMax = addDays(new Date(), daysAhead);
+  // Sync 90 days back and 90 days forward
+  const timeMin = addDays(new Date(), -90);
+  const timeMax = addDays(new Date(), 90);
 
   const accounts = [
     { tokens: user.googleTokens, source: 'google_primary' },
@@ -87,7 +86,27 @@ export async function calendarSyncJob(job: Job<CalendarSyncJobData>): Promise<vo
       console.error(`[calendar-sync] Error for ${account.source}:`, err);
     }
   }
+}
+
+export async function calendarSyncJob(job: Job<CalendarSyncJobData>): Promise<void> {
+  console.log(`[${new Date().toISOString()}] [calendar-sync] Job started`);
+
+  if (job.data.triggerAllUsers) {
+    const users = await prisma.user.findMany({ select: { id: true } });
+    console.log(`[calendar-sync] Fan-out: syncing ${users.length} users`);
+    for (const user of users) {
+      try {
+        await syncCalendarForUser(user.id);
+      } catch (err) {
+        console.error(`[calendar-sync] Error for user ${user.id}:`, err);
+      }
+    }
+  } else if (job.data.userId) {
+    await syncCalendarForUser(job.data.userId);
+  } else {
+    console.warn('[calendar-sync] Job has no userId and triggerAllUsers is not set, skipping');
+  }
 
   await job.updateProgress(100);
-  console.log(`[${new Date().toISOString()}] [calendar-sync] Completed for user ${userId}`);
+  console.log(`[${new Date().toISOString()}] [calendar-sync] Job completed`);
 }

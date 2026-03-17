@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@ai-coach/db';
 import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { getMonday } from '@ai-coach/shared';
 import type { Prisma } from '@ai-coach/db';
 
@@ -45,7 +47,7 @@ Poslední zdravotní metriky:
     : '';
 
   const { text } = await generateText({
-    model: google('gemini-2.0-flash'),
+    model: google('gemini-2.5-flash'),
     prompt: `Jsi AI trenér. Uprav níže uvedený tréninkový plán.
 
 Důvod úpravy: ${reason}

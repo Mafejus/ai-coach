@@ -13,15 +13,13 @@ import {
 import { toISODate, addDays } from '@ai-coach/shared';
 
 interface GarminSyncJobData {
-  userId: string;
+  userId?: string;
   date?: string;
   mode?: 'quick' | 'full';
   triggerAllUsers?: boolean;
 }
 
 async function decryptPassword(encrypted: string): Promise<string> {
-  // Import encryption from web app is not possible in worker
-  // Worker needs its own encryption util — use same logic
   const { createDecipheriv } = await import('crypto');
   const keyHex = process.env.ENCRYPTION_KEY!;
   const key = Buffer.from(keyHex, 'hex');
@@ -33,9 +31,8 @@ async function decryptPassword(encrypted: string): Promise<string> {
   return decipher.update(Buffer.from(encHex, 'hex')).toString('utf8') + decipher.final('utf8');
 }
 
-export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> {
-  const { userId, date } = job.data;
-  console.log(`[${new Date().toISOString()}] [garmin-sync] Starting for user ${userId}`);
+async function syncGarminForUser(userId: string, mode: 'quick' | 'full', date?: string): Promise<void> {
+  console.log(`[garmin-sync] Starting for user ${userId} mode=${mode}`);
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -51,11 +48,9 @@ export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> 
   const client = new GarminClient(user.garminEmail, password);
   await client.authenticate();
 
-  const mode = job.data.mode ?? 'quick';
   const today = toISODate(new Date());
   const yesterday = toISODate(new Date(Date.now() - 86400_000));
 
-  // quick mode: today + yesterday only; full mode: last 14 days
   let dates: string[];
   if (date) {
     dates = [date];
@@ -66,46 +61,95 @@ export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> 
     dates = [yesterday, today];
   }
 
-  // Sync health metrics
+  // Sync health metrics — sequential calls to respect Garmin rate limit (2s between requests)
   for (const d of dates) {
     try {
-      const [sleep, hr, hrv, summary] = await Promise.allSettled([
-        client.getSleepData(d),
-        client.getHeartRate(d),
-        client.getHRVData(d),
-        client.getUserSummary(d),
-      ]);
-
       const parts: Record<string, unknown>[] = [];
-      if (sleep.status === 'fulfilled') parts.push(parseSleepToHealthMetric(sleep.value));
-      if (hr.status === 'fulfilled') parts.push(parseHRToHealthMetric(hr.value));
-      if (hrv.status === 'fulfilled') parts.push(parseHRVToHealthMetric(hrv.value));
-      if (summary.status === 'fulfilled') parts.push(parseUserSummaryToHealthMetric(summary.value));
+      const rawData: Record<string, unknown> = {};
+
+      // 1. Sleep
+      try {
+        const sleepData = await client.getSleepData(d);
+        console.log(`[garmin-sync] Sleep raw for ${d}:`, JSON.stringify(sleepData).substring(0, 500));
+        rawData.sleep = sleepData;
+        parts.push(parseSleepToHealthMetric(sleepData));
+      } catch (e) {
+        console.error(`[garmin-sync] Sleep fetch failed for ${d}:`, (e as Error).message);
+      }
+
+      // 2. Heart rate
+      try {
+        const hrData = await client.getHeartRate(d);
+        console.log(`[garmin-sync] HR raw for ${d}:`, JSON.stringify(hrData).substring(0, 300));
+        rawData.heartRate = hrData;
+        parts.push(parseHRToHealthMetric(hrData));
+      } catch (e) {
+        console.error(`[garmin-sync] HR fetch failed for ${d}:`, (e as Error).message);
+      }
+
+      // 3. HRV (via raw endpoint hrv-service/hrv/DATE)
+      try {
+        const hrvData = await client.getHRVData(d);
+        console.log(`[garmin-sync] HRV raw for ${d}:`, JSON.stringify(hrvData).substring(0, 300));
+        rawData.hrv = hrvData;
+        parts.push(parseHRVToHealthMetric(hrvData));
+      } catch (e) {
+        console.error(`[garmin-sync] HRV fetch failed for ${d}:`, (e as Error).message);
+      }
+
+      // 4. User summary (Body Battery, Stress — via usersummary-service endpoint)
+      try {
+        const summaryData = await client.getUserSummary(d);
+        console.log(`[garmin-sync] Summary raw for ${d}:`, JSON.stringify(summaryData).substring(0, 500));
+        rawData.userSummary = summaryData;
+        parts.push(parseUserSummaryToHealthMetric(summaryData));
+      } catch (e) {
+        console.error(`[garmin-sync] Summary fetch failed for ${d}:`, (e as Error).message);
+      }
 
       if (parts.length > 0) {
         const merged = mergeHealthMetrics(...parts);
+        const upsertData = {
+          ...merged,
+          rawData: rawData as Prisma.InputJsonValue,
+        };
         await prisma.healthMetric.upsert({
           where: { userId_date: { userId, date: new Date(d) } },
-          update: merged,
-          create: { userId, date: new Date(d), ...merged },
+          update: upsertData,
+          create: { userId, date: new Date(d), ...upsertData },
         });
-        console.log(`[garmin-sync] Health metrics saved for ${d}`);
+        console.log(`[garmin-sync] Health metrics saved for ${d}:`, Object.keys(merged).join(', '));
       }
     } catch (err) {
       console.error(`[garmin-sync] Health error for ${d}:`, err);
     }
   }
 
-  // Sync activities
+  // Sync activities — also fetch GPS + streams for each
   try {
     const activities = await client.getActivities(0, 20);
     for (const raw of activities) {
       const parsed = parseGarminActivity(raw);
+
+      // Fetch full details (GPS + streams)
+      let detailsData: Record<string, unknown> = {};
+      let lapsData: Prisma.InputJsonValue | null = null;
+      try {
+        const details = await client.getActivityDetails(raw.activityId);
+        const splits = await client.getActivitySplits(raw.activityId);
+        detailsData = details as Record<string, unknown>;
+        if (splits.lapDTOs?.length) {
+          lapsData = splits.lapDTOs as unknown as Prisma.InputJsonValue;
+        }
+      } catch (err) {
+        console.error(`[garmin-sync] Details fetch failed for ${raw.activityId}:`, err);
+      }
+
       const data = {
         ...parsed,
         sport: parsed.sport as Sport,
-        rawData: (parsed.rawData ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-        laps: Prisma.JsonNull,
+        rawData: { ...(parsed.rawData as object ?? {}), details: detailsData } as Prisma.InputJsonValue,
+        laps: lapsData ?? Prisma.JsonNull,
         userId,
       };
       await prisma.activity.upsert({
@@ -119,6 +163,30 @@ export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> 
     console.error('[garmin-sync] Activities error:', err);
   }
 
-  await job.updateProgress(100);
   console.log(`[${new Date().toISOString()}] [garmin-sync] Completed for user ${userId}`);
+}
+
+export async function garminSyncJob(job: Job<GarminSyncJobData>): Promise<void> {
+  const { date } = job.data;
+  const mode = job.data.mode ?? 'quick';
+  console.log(`[${new Date().toISOString()}] [garmin-sync] Job started mode=${mode}`);
+
+  if (job.data.triggerAllUsers) {
+    const users = await prisma.user.findMany({ select: { id: true } });
+    console.log(`[garmin-sync] Fan-out: syncing ${users.length} users`);
+    for (const user of users) {
+      try {
+        await syncGarminForUser(user.id, mode, date);
+      } catch (err) {
+        console.error(`[garmin-sync] Error for user ${user.id}:`, err);
+      }
+    }
+  } else if (job.data.userId) {
+    await syncGarminForUser(job.data.userId, mode, date);
+  } else {
+    console.warn('[garmin-sync] Job has no userId and triggerAllUsers is not set, skipping');
+  }
+
+  await job.updateProgress(100);
+  console.log(`[${new Date().toISOString()}] [garmin-sync] Job completed`);
 }

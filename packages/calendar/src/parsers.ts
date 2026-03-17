@@ -32,12 +32,14 @@ export function parseGoogleEvent(
   // For all-day events, Google returns a date string "YYYY-MM-DD" without time.
   // Using new Date("YYYY-MM-DD") parses as UTC midnight, causing a timezone offset shift.
   // Appending T00:00:00 makes it parse as local time instead.
+  // For all-day events, Google returns "YYYY-MM-DD". Store as UTC midnight of that date
+  // so the date is stable regardless of server timezone.
   const startTime = event.start.dateTime
     ? new Date(event.start.dateTime)
-    : new Date((event.start.date ?? '') + 'T00:00:00');
+    : new Date((event.start.date ?? '') + 'T00:00:00Z');
   const endTime = event.end.dateTime
     ? new Date(event.end.dateTime)
-    : new Date((event.end.date ?? '') + 'T00:00:00');
+    : new Date((event.end.date ?? '') + 'T00:00:00Z');
 
   return {
     externalId: event.id,

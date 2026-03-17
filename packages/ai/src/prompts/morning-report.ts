@@ -1,8 +1,10 @@
 interface MorningReportInput {
   health: {
+    date?: string;
     sleepScore?: number | null;
     sleepDuration?: number | null;
     bodyBattery?: number | null;
+    bodyBatteryChange?: number | null;
     hrvStatus?: number | null;
     hrvBaseline?: number | null;
     trainingReadiness?: number | null;
@@ -27,21 +29,29 @@ interface MorningReportInput {
     date: Date | string;
     daysUntil?: number;
   }>;
-  yesterday: {
+  history: Array<{
+    date: string;
     sport: string;
     duration: number;
     distance?: number | null;
     name?: string | null;
-  } | null;
+    trainingLoad?: number | null;
+    aerobicTE?: number | null;
+    anaerobicTE?: number | null;
+  }>;
 }
 
 export function morningReportPrompt(input: MorningReportInput): string {
-  // TODO: Build structured morning report prompt
   return `
-Vygeneruj ranní tréninkový briefing pro dnešní den.
+Vygeneruj ranní tréninkový briefing v češtině.
+Dnešní datum: ${new Date().toLocaleDateString('cs-CZ')}
 
-## ZDRAVOTNÍ DATA Z MINULÉ NOCI
+## ZDRAVOTNÍ DATA (POSLEDNÍ DOSTUPNÁ - ${input.health?.date ?? 'neznámo'})
 ${JSON.stringify(input.health, null, 2)}
+BodyBatteryChange je "Body Recovery" - kolik se tělo přes noc dobilo.
+
+## HISTORIE TRÉNINKŮ (POSLEDNÍCH 7 DNÍ)
+${JSON.stringify(input.history, null, 2)}
 
 ## DNEŠNÍ PLÁN TRÉNINKU
 ${JSON.stringify(input.plan, null, 2)}
@@ -52,16 +62,13 @@ ${JSON.stringify(input.calendar, null, 2)}
 ## AKTIVNÍ ZRANĚNÍ
 ${JSON.stringify(input.injuries, null, 2)}
 
-## VČEREJŠÍ AKTIVITA
-${JSON.stringify(input.yesterday, null, 2)}
-
 ## NADCHÁZEJÍCÍ ZÁVODY
 ${JSON.stringify(input.events, null, 2)}
 
-Vygeneruj strukturovaný briefing v češtině. Zahrň:
-1. Celkové hodnocení dnešní formy (na základě spánku, HRV, Body Battery)
-2. Doporučení pro dnešní trénink (upravit/potvrdit/přeskočit)
-3. Varování z kalendáře (čas na trénink)
-4. Rychlý pohled na závody (odpočet)
+Při tvorbě briefingu:
+1. Zohledni únavu z předchozích dní (historie tréninků).
+2. Pokud je Body Recovery (BodyBatteryChange) nízké, buď opatrnější v intenzitě.
+3. Pokud chybí data pro dnešek, upozorni na to a vycházej z posledních dostupných.
+4. Buď stručný, motivující a věcný.
 `.trim();
 }

@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@ai-coach/db';
 import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { morningReportPrompt } from '@ai-coach/ai';
 
 export const dynamic = 'force-dynamic';
@@ -21,9 +23,13 @@ export async function POST() {
   yesterday.setDate(yesterday.getDate() - 1);
 
   // Gather all data
-  const [healthMetric, planData, calendarData, injuriesData, eventsData, yesterdayActivity] =
+  const [healthMetric, planData, calendarData, injuriesData, eventsData, recentActivities] =
     await Promise.allSettled([
-      prisma.healthMetric.findFirst({ where: { userId, date: { gte: today, lt: tomorrow } } }),
+      // Try today first, then fallback to last available in local logic
+      prisma.healthMetric.findFirst({ 
+        where: { userId }, 
+        orderBy: { date: 'desc' } 
+      }),
       prisma.trainingPlan.findFirst({
         where: { userId, weekStart: { lte: today }, status: { in: ['ACTIVE', 'DRAFT'] } },
         orderBy: { weekStart: 'desc' },
@@ -38,25 +44,28 @@ export async function POST() {
         orderBy: { date: 'asc' },
         take: 3,
       }),
-      prisma.activity.findFirst({
-        where: { userId, date: { gte: yesterday, lt: today } },
+      prisma.activity.findMany({
+        where: { userId, date: { gte: new Date(Date.now() - 7 * 86400000) } },
         orderBy: { date: 'desc' },
+        take: 10,
       }),
     ]);
-
+ 
   const health = healthMetric.status === 'fulfilled' ? healthMetric.value : null;
   const plan = planData.status === 'fulfilled' ? planData.value : null;
   const calendar = calendarData.status === 'fulfilled' ? calendarData.value : [];
   const injuries = injuriesData.status === 'fulfilled' ? injuriesData.value : [];
   const events = eventsData.status === 'fulfilled' ? eventsData.value : [];
-  const yesterday_activity = yesterdayActivity.status === 'fulfilled' ? yesterdayActivity.value : null;
-
+  const activities = recentActivities.status === 'fulfilled' ? recentActivities.value : [];
+ 
   const promptText = morningReportPrompt({
     health: health
       ? {
+          date: health.date.toISOString().split('T')[0],
           sleepScore: health.sleepScore,
           sleepDuration: health.sleepDuration,
           bodyBattery: health.bodyBattery,
+          bodyBatteryChange: health.bodyBatteryChange,
           hrvStatus: health.hrvStatus,
           hrvBaseline: health.hrvBaseline,
           trainingReadiness: health.trainingReadiness,
@@ -80,18 +89,20 @@ export async function POST() {
       date: e.date,
       daysUntil: Math.ceil((e.date.getTime() - Date.now()) / 86400000),
     })),
-    yesterday: yesterday_activity
-      ? {
-          sport: yesterday_activity.sport,
-          duration: yesterday_activity.duration,
-          distance: yesterday_activity.distance,
-          name: yesterday_activity.name,
-        }
-      : null,
+    history: activities.map(a => ({
+      date: a.date?.toISOString()?.split('T')[0] ?? '',
+      sport: a.sport,
+      duration: a.duration,
+      distance: a.distance,
+      name: a.name,
+      trainingLoad: a.trainingLoad,
+      aerobicTE: (a.rawData as any)?.aerobicTrainingEffect,
+      anaerobicTE: (a.rawData as any)?.anaerobicTrainingEffect,
+    })),
   });
 
   const { text } = await generateText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.5-flash'),
     prompt: promptText,
   });
 
@@ -106,8 +117,8 @@ export async function POST() {
 
   const report = await prisma.dailyReport.upsert({
     where: { userId_date: { userId, date: today } },
-    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
-    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
+    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
+    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
   });
 
   return NextResponse.json(report);

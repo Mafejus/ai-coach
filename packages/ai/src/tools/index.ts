@@ -151,5 +151,55 @@ export function createCoachTools(userId: string) {
         }));
       },
     }),
+
+    getActivityDetails: tool({
+      description: 'Získej detailní data o konkrétní aktivitě včetně kol (laps) a surových dat (rawData).',
+      parameters: z.object({
+        activityId: z.string().describe('ID aktivity'),
+      }),
+      execute: async ({ activityId }) => {
+        return await prisma.activity.findUnique({
+          where: { id: activityId },
+        });
+      },
+    }),
+
+    getUserStats: tool({
+      description: 'Získej agregované statistiky a trendy za zadané období (např. celkové km, avg tempo, VO2max trend).',
+      parameters: z.object({
+        startDate: z.string().describe('ISO date (YYYY-MM-DD)'),
+        endDate: z.string().describe('ISO date (YYYY-MM-DD)'),
+      }),
+      execute: async ({ startDate, endDate }) => {
+        const [activities, health] = await Promise.all([
+          prisma.activity.findMany({
+            where: { userId, date: { gte: new Date(startDate), lte: new Date(endDate) } },
+          }),
+          prisma.healthMetric.findMany({
+            where: { userId, date: { gte: new Date(startDate), lte: new Date(endDate) } },
+            orderBy: { date: 'asc' },
+          }),
+        ]);
+
+        const totalDist = activities.reduce((acc, a) => acc + (a.distance ?? 0), 0);
+        const totalDuration = activities.reduce((acc, a) => acc + a.duration, 0);
+        const vo2趋势 = health.map(h => ({ date: h.date, vo2: h.vo2max })).filter(h => h.vo2 != null);
+
+        return {
+          period: { startDate, endDate },
+          summary: {
+            activityCount: activities.length,
+            totalDistanceKm: totalDist / 1000,
+            totalDurationHours: totalDuration / 3600,
+            avgHR: activities.filter(a => a.avgHR).reduce((acc, a) => acc + a.avgHR!, 0) / (activities.filter(a => a.avgHR).length || 1),
+          },
+          vo2maxTrend: vo2趋势,
+          sports: activities.reduce((acc, a) => {
+            acc[a.sport] = (acc[a.sport] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>),
+        };
+      },
+    }),
   };
 }

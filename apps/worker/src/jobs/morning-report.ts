@@ -1,7 +1,9 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@ai-coach/db';
 import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 import { morningReportPrompt } from '@ai-coach/ai';
 import webpush from 'web-push';
 
@@ -120,7 +122,7 @@ export async function morningReportJob(job: Job<MorningReportJobData>): Promise<
   });
 
   const { text } = await generateText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.5-flash'),
     prompt: promptText,
   });
 
@@ -135,8 +137,8 @@ export async function morningReportJob(job: Job<MorningReportJobData>): Promise<
 
   await prisma.dailyReport.upsert({
     where: { userId_date: { userId, date: today } },
-    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
-    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-pro' },
+    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
+    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
   });
 
   console.log(`[morning-report] Report saved for user ${userId}`);

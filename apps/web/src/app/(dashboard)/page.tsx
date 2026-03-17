@@ -16,37 +16,61 @@ async function getDashboardData(userId: string) {
   const sevenDaysAgo = new Date(today);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const [todayMetrics, weekMetrics, todayCalendar, currentPlan, upcomingEvents, todayReport] =
-    await Promise.allSettled([
-      prisma.healthMetric.findFirst({ where: { userId, date: { gte: today, lt: tomorrow } } }),
-      prisma.healthMetric.findMany({
-        where: { userId, date: { gte: sevenDaysAgo, lt: tomorrow } },
-        orderBy: { date: 'asc' },
-        select: { date: true, bodyBattery: true, hrvStatus: true, hrvBaseline: true, sleepScore: true, sleepDuration: true, trainingReadiness: true },
-      }),
-      prisma.calendarEvent.findMany({
-        where: { userId, startTime: { gte: today }, endTime: { lte: tomorrow } },
-        orderBy: { startTime: 'asc' },
-      }),
-      prisma.trainingPlan.findFirst({
-        where: { userId, weekStart: { lte: today }, status: { in: ['ACTIVE', 'DRAFT'] } },
-        orderBy: { weekStart: 'desc' },
-      }),
-      prisma.event.findMany({
-        where: { userId, date: { gte: today } },
-        orderBy: { date: 'asc' },
-        take: 3,
-      }),
-      prisma.dailyReport.findFirst({ where: { userId, date: { gte: today } } }),
-    ]);
+  const results = await Promise.allSettled([
+    prisma.healthMetric.findFirst({ 
+      where: { userId }, 
+      orderBy: { date: 'desc' } 
+    }),
+    prisma.healthMetric.findMany({
+      where: { userId, date: { gte: sevenDaysAgo, lt: tomorrow } },
+      orderBy: { date: 'asc' },
+      select: { 
+        date: true, 
+        bodyBattery: true, 
+        bodyBatteryChange: true, 
+        hrvStatus: true, 
+        hrvBaseline: true, 
+        sleepScore: true, 
+        sleepDuration: true, 
+        trainingReadiness: true, 
+        vo2max: true 
+      },
+    }),
+    prisma.calendarEvent.findMany({
+      where: { userId, startTime: { gte: today }, endTime: { lte: tomorrow } },
+      orderBy: { startTime: 'asc' },
+    }),
+    prisma.trainingPlan.findFirst({
+      where: { userId, weekStart: { lte: today }, status: { in: ['ACTIVE', 'DRAFT'] } },
+      orderBy: { weekStart: 'desc' },
+    }),
+    prisma.event.findMany({
+      where: { userId, date: { gte: today } },
+      orderBy: { date: 'asc' },
+      take: 3,
+    }),
+    prisma.dailyReport.findFirst({ 
+      where: { userId, date: { gte: today } } 
+    }),
+    prisma.healthMetric.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
+
+  const [latestMetrics, weekMetrics, todayCalendar, currentPlan, upcomingEvents, todayReport, totalLastSync] = results;
+
+  const lastSyncData = totalLastSync.status === 'fulfilled' ? totalLastSync.value : null;
+  const metricsData = latestMetrics.status === 'fulfilled' ? latestMetrics.value : null;
 
   return {
-    metrics: todayMetrics.status === 'fulfilled' ? todayMetrics.value : null,
+    metrics: metricsData,
     weekMetrics: weekMetrics.status === 'fulfilled' ? weekMetrics.value : [],
     calendar: todayCalendar.status === 'fulfilled' ? todayCalendar.value : [],
     plan: currentPlan.status === 'fulfilled' ? currentPlan.value : null,
     events: upcomingEvents.status === 'fulfilled' ? upcomingEvents.value : [],
     report: todayReport.status === 'fulfilled' ? todayReport.value : null,
+    lastSync: lastSyncData?.createdAt ?? null,
   };
 }
 
@@ -133,13 +157,37 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
-        <p className="text-sm text-zinc-400">
-          {new Date().toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </p>
+        <div className="text-right">
+          <p className="text-sm text-zinc-400">
+            {new Date().toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
+          {data.lastSync && (
+            <p className="text-[10px] text-zinc-500 uppercase tracking-tight">
+              Poslední synchronizace: {new Date(data.lastSync).toLocaleString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* VO2 Max */}
+        <MetricCard
+          title="VO2 Max"
+          value={m?.vo2max ?? '—'}
+          icon={TrendingUp}
+          color="text-purple-400"
+        />
+
+        {/* Training Readiness */}
+        <MetricCard
+          title="Training Readiness"
+          value={m?.trainingReadiness ?? '—'}
+          subtitle={getTRLabel(m?.trainingReadiness ?? null)}
+          icon={Zap}
+          color={getBBColor(m?.trainingReadiness ?? null)}
+        />
+
         {/* Body Battery */}
         <MetricCard
           title="Body Battery"
@@ -148,6 +196,12 @@ export default async function DashboardPage() {
           icon={Battery}
           color={getBBColor(m?.bodyBattery ?? null)}
         >
+          {m?.bodyBatteryChange != null && (
+            <div className="flex items-center gap-1 text-[10px] text-zinc-500 mb-1">
+              <TrendingUp className="h-3 w-3 text-green-400" />
+              <span>Body Recovery: +{m.bodyBatteryChange}</span>
+            </div>
+          )}
           <BodyBatteryChart data={wm.map(d => ({ date: String(d.date), bodyBattery: d.bodyBattery }))} />
         </MetricCard>
 
@@ -182,19 +236,10 @@ export default async function DashboardPage() {
               <span className={m.hrvStatus >= m.hrvBaseline ? 'text-green-400' : 'text-red-400'}>
                 {Math.round(((m.hrvStatus - m.hrvBaseline) / m.hrvBaseline) * 100)}%
               </span>
-              <span className="text-zinc-500">vs baseline</span>
+              <span className="text-zinc-500 text-[10px]">vs baseline</span>
             </div>
           )}
         </MetricCard>
-
-        {/* Training Readiness */}
-        <MetricCard
-          title="Training Readiness"
-          value={m?.trainingReadiness ?? '—'}
-          subtitle={getTRLabel(m?.trainingReadiness ?? null)}
-          icon={Zap}
-          color={getBBColor(m?.trainingReadiness ?? null)}
-        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

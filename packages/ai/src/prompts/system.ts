@@ -28,9 +28,33 @@ interface AgentInjury {
 interface AgentContext {
   events: AgentEvent[];
   injuries: AgentInjury[];
+  today?: Date;
+  health?: {
+    date: string;
+    sleepScore?: number | null;
+    sleepDuration?: number | null;
+    bodyBattery?: number | null;
+    bodyBatteryChange?: number | null;
+    hrvStatus?: number | null;
+    restingHR?: number | null;
+    trainingReadiness?: number | null;
+  } | null;
+  activities?: Array<{
+    date: string;
+    sport: string;
+    duration: number;
+    distance?: number | null;
+    trainingLoad?: number | null;
+    avgHR?: number | null;
+    avgPace?: number | null;
+    aerobicTE?: number | null;
+    anaerobicTE?: number | null;
+    name?: string | null;
+  }>;
 }
 
 export function buildSystemPrompt(user: UserProfile, context: AgentContext): string {
+  const today = context.today || new Date();
   const zones = calculateZones({
     maxHR: user.maxHR,
     restHR: user.restHR,
@@ -61,6 +85,7 @@ export function buildSystemPrompt(user: UserProfile, context: AgentContext): str
   return `
 Jsi elitní triatlonový a běžecký trenér s 20+ lety zkušeností.
 Trénuješ závodníka ${user.name}.
+Dnešní datum: ${today.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
 ## PROFIL ZÁVODNÍKA
 - Sport: Triatlon (70.3, olympijský) + Běh (maraton, půlmaraton, trail)
@@ -75,6 +100,13 @@ ${eventsText}
 
 ## AKTIVNÍ ZRANĚNÍ
 ${injuriesText}
+
+## AKTUÁLNÍ ZDRAVOTNÍ STAV (${context.health?.date ?? 'neznámo'})
+${context.health ? JSON.stringify(context.health, null, 2) : 'Data nejsou k dispozici.'}
+BodyBatteryChange je "Body Recovery" - kolik se tělo přes noc dobilo.
+
+## POSLEDNÍ TRÉNINKY (7 DNÍ)
+${context.activities?.length ? JSON.stringify(context.activities, null, 2) : 'Žádné nedávné aktivity.'}
 
 ## PRAVIDLA TRÉNOVÁNÍ
 1. Nikdy nepřekroč max ${user.weeklyHoursMax ?? '?'}h/týden.
