@@ -23,42 +23,66 @@ export async function POST() {
   yesterday.setDate(yesterday.getDate() - 1);
 
   // Gather all data
-  const [healthMetric, planData, calendarData, injuriesData, eventsData, recentActivities] =
-    await Promise.allSettled([
-      // Try today first, then fallback to last available in local logic
-      prisma.healthMetric.findFirst({ 
-        where: { userId }, 
-        orderBy: { date: 'desc' } 
-      }),
-      prisma.trainingPlan.findFirst({
-        where: { userId, weekStart: { lte: today }, status: { in: ['ACTIVE', 'DRAFT'] } },
-        orderBy: { weekStart: 'desc' },
-      }),
-      prisma.calendarEvent.findMany({
-        where: { userId, startTime: { gte: today }, endTime: { lt: tomorrow } },
-        orderBy: { startTime: 'asc' },
-      }),
-      prisma.injury.findMany({ where: { userId, active: true } }),
-      prisma.event.findMany({
-        where: { userId, date: { gte: today } },
-        orderBy: { date: 'asc' },
-        take: 3,
-      }),
-      prisma.activity.findMany({
-        where: { userId, date: { gte: new Date(Date.now() - 7 * 86400000) } },
-        orderBy: { date: 'desc' },
-        take: 10,
-      }),
-    ]);
- 
+  const [
+    healthMetric, 
+    coachContext,
+    plannedWorkouts,
+    calendarData, 
+    injuriesData, 
+    eventsData, 
+    recentActivities
+  ] = await Promise.allSettled([
+    prisma.healthMetric.findFirst({ 
+      where: { userId }, 
+      orderBy: { date: 'desc' } 
+    }),
+    prisma.activeCoachContext.findUnique({
+      where: { userId }
+    }),
+    prisma.plannedWorkout.findMany({
+      where: { userId, date: { gte: today, lte: tomorrow } },
+      orderBy: { date: 'asc' }
+    }),
+    prisma.calendarEvent.findMany({
+      where: { userId, startTime: { gte: today }, endTime: { lt: tomorrow } },
+      orderBy: { startTime: 'asc' },
+    }),
+    prisma.injury.findMany({ where: { userId, active: true } }),
+    prisma.event.findMany({
+      where: { userId, date: { gte: today } },
+      orderBy: { date: 'asc' },
+      take: 3,
+    }),
+    prisma.activity.findMany({
+      where: { userId, date: { gte: new Date(Date.now() - 7 * 86400000) } },
+      orderBy: { date: 'desc' },
+      take: 10,
+    }),
+  ]);
+
   const health = healthMetric.status === 'fulfilled' ? healthMetric.value : null;
-  const plan = planData.status === 'fulfilled' ? planData.value : null;
+  const context = coachContext.status === 'fulfilled' ? coachContext.value : null;
+  const pWorkouts = plannedWorkouts.status === 'fulfilled' ? plannedWorkouts.value : [];
   const calendar = calendarData.status === 'fulfilled' ? calendarData.value : [];
   const injuries = injuriesData.status === 'fulfilled' ? injuriesData.value : [];
   const events = eventsData.status === 'fulfilled' ? eventsData.value : [];
   const activities = recentActivities.status === 'fulfilled' ? recentActivities.value : [];
- 
+
   const promptText = morningReportPrompt({
+    coachContext: context ? {
+      directives: context.coachDirectives,
+      focusAreas: context.focusAreas,
+      recoveryStatus: context.recoveryStatus,
+      overtrainingRisk: context.overtrainingRisk,
+    } : null,
+    plannedWorkouts: pWorkouts.map(w => ({
+      date: w.date.toLocaleDateString('cs-CZ'),
+      title: w.title || 'Trénink',
+      type: w.workoutType || 'OTHER',
+      duration: w.durationMinutes || 0,
+      description: w.description || '',
+      isRestDay: w.isRestDay,
+    })),
     health: health
       ? {
           date: health.date.toISOString().split('T')[0],
@@ -72,7 +96,6 @@ export async function POST() {
           restingHR: health.restingHR,
         }
       : null,
-    plan: plan ? { plan: plan.plan } : null,
     calendar: calendar.map(e => ({
       title: e.title,
       startTime: e.startTime,
@@ -102,23 +125,24 @@ export async function POST() {
   });
 
   const { text } = await generateText({
-    model: google('gemini-2.5-flash'),
+    model: google('gemini-2.5-pro'),
     prompt: promptText,
   });
 
   const metricsUsed = {
     hasHealth: !!health,
-    hasPlan: !!plan,
+    hasContext: !!context,
+    plannedWorkouts: pWorkouts.length,
     calendarCount: calendar.length,
     injuryCount: injuries.length,
     eventCount: events.length,
-    hasYesterdayActivity: !!yesterday_activity,
+    hasActivities: activities.length > 0,
   };
 
   const report = await prisma.dailyReport.upsert({
     where: { userId_date: { userId, date: today } },
-    update: { report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
-    create: { userId, date: today, report: metricsUsed, markdown: text, metricsUsed, aiModel: 'gemini-2.5-flash' },
+    update: { report: metricsUsed as any, markdown: text, metricsUsed: metricsUsed as any, aiModel: 'gemini-2.5-pro' },
+    create: { userId, date: today, report: metricsUsed as any, markdown: text, metricsUsed: metricsUsed as any, aiModel: 'gemini-2.5-pro' },
   });
 
   return NextResponse.json(report);

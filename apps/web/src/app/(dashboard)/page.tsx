@@ -2,8 +2,11 @@ import { Suspense } from 'react';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@ai-coach/db';
-import { getMonday, formatPace, formatDuration } from '@ai-coach/shared';
-import { Battery, Moon, Heart, Zap, Calendar, Trophy, TrendingUp, TrendingDown } from 'lucide-react';
+import { getMonday, formatDuration } from '@ai-coach/shared';
+import {
+  Battery, Moon, Heart, Zap, Calendar, Trophy,
+  TrendingUp, TrendingDown, Activity, Brain,
+} from 'lucide-react';
 import { BodyBatteryChart } from '@/components/charts/BodyBatteryChart';
 import { HRVChart } from '@/components/charts/HRVChart';
 import { DailyReportSection } from '@/components/dashboard/DailyReportSection';
@@ -17,23 +20,14 @@ async function getDashboardData(userId: string) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   const results = await Promise.allSettled([
-    prisma.healthMetric.findFirst({ 
-      where: { userId }, 
-      orderBy: { date: 'desc' } 
-    }),
+    prisma.healthMetric.findFirst({ where: { userId }, orderBy: { date: 'desc' } }),
     prisma.healthMetric.findMany({
       where: { userId, date: { gte: sevenDaysAgo, lt: tomorrow } },
       orderBy: { date: 'asc' },
-      select: { 
-        date: true, 
-        bodyBattery: true, 
-        bodyBatteryChange: true, 
-        hrvStatus: true, 
-        hrvBaseline: true, 
-        sleepScore: true, 
-        sleepDuration: true, 
-        trainingReadiness: true, 
-        vo2max: true 
+      select: {
+        date: true, bodyBattery: true, bodyBatteryChange: true,
+        hrvStatus: true, hrvBaseline: true, sleepScore: true,
+        sleepDuration: true, trainingReadiness: true, vo2max: true,
       },
     }),
     prisma.calendarEvent.findMany({
@@ -49,59 +43,26 @@ async function getDashboardData(userId: string) {
       orderBy: { date: 'asc' },
       take: 3,
     }),
-    prisma.dailyReport.findFirst({ 
-      where: { userId, date: { gte: today } } 
-    }),
-    prisma.healthMetric.findFirst({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
+    prisma.dailyReport.findFirst({ where: { userId, date: { gte: today } } }),
+    prisma.healthMetric.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.plannedWorkout.findMany({
+      where: { userId, date: { gte: today, lt: tomorrow } },
+      orderBy: { date: 'asc' },
     }),
   ]);
 
-  const [latestMetrics, weekMetrics, todayCalendar, currentPlan, upcomingEvents, todayReport, totalLastSync] = results;
-
-  const lastSyncData = totalLastSync.status === 'fulfilled' ? totalLastSync.value : null;
-  const metricsData = latestMetrics.status === 'fulfilled' ? latestMetrics.value : null;
+  const [latestMetrics, weekMetrics, todayCalendar, currentPlan, upcomingEvents, todayReport, totalLastSync, plannedWorkouts] = results;
 
   return {
-    metrics: metricsData,
+    metrics: latestMetrics.status === 'fulfilled' ? latestMetrics.value : null,
     weekMetrics: weekMetrics.status === 'fulfilled' ? weekMetrics.value : [],
     calendar: todayCalendar.status === 'fulfilled' ? todayCalendar.value : [],
     plan: currentPlan.status === 'fulfilled' ? currentPlan.value : null,
     events: upcomingEvents.status === 'fulfilled' ? upcomingEvents.value : [],
     report: todayReport.status === 'fulfilled' ? todayReport.value : null,
-    lastSync: lastSyncData?.createdAt ?? null,
+    lastSync: (totalLastSync.status === 'fulfilled' ? totalLastSync.value?.createdAt : null) ?? null,
+    plannedWorkouts: plannedWorkouts.status === 'fulfilled' ? plannedWorkouts.value : [],
   };
-}
-
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  color,
-  children,
-}: {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-  icon: React.ElementType;
-  color: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-400 uppercase tracking-wider">{title}</span>
-        <Icon className={`h-4 w-4 ${color}`} />
-      </div>
-      <div>
-        <span className="text-2xl font-bold text-zinc-100">{value}</span>
-        {subtitle && <span className="text-xs text-zinc-400 ml-2">{subtitle}</span>}
-      </div>
-      {children}
-    </div>
-  );
 }
 
 function getBBColor(val: number | null) {
@@ -111,11 +72,11 @@ function getBBColor(val: number | null) {
   return 'text-red-400';
 }
 
-function getTRLabel(val: number | null) {
-  if (!val) return '—';
-  if (val >= 60) return 'Ready';
-  if (val >= 30) return 'Moderate';
-  return 'Rest';
+function getTRConfig(val: number | null): { label: string; color: string; bar: string } {
+  if (!val) return { label: '—', color: 'text-zinc-400', bar: 'bg-zinc-700' };
+  if (val >= 60) return { label: 'Ready', color: 'text-green-400', bar: 'bg-green-500' };
+  if (val >= 30) return { label: 'Moderate', color: 'text-yellow-400', bar: 'bg-yellow-500' };
+  return { label: 'Rest', color: 'text-red-400', bar: 'bg-red-500' };
 }
 
 function formatSleepDuration(minutes: number | null) {
@@ -126,10 +87,18 @@ function formatSleepDuration(minutes: number | null) {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  school: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
-  work: 'bg-orange-500/20 border-orange-500/40 text-orange-300',
-  sport: 'bg-green-500/20 border-green-500/40 text-green-300',
-  personal: 'bg-zinc-700/50 border-zinc-600 text-zinc-300',
+  school:   'bg-blue-500/15   border-blue-500/30   text-blue-300',
+  work:     'bg-orange-500/15 border-orange-500/30 text-orange-300',
+  sport:    'bg-green-500/15  border-green-500/30  text-green-300',
+  personal: 'bg-zinc-800/60   border-zinc-700      text-zinc-300',
+};
+
+const SPORT_ICONS: Record<string, string> = { RUN: '🏃', BIKE: '🚴', SWIM: '🏊', STRENGTH: '🏋️', TRIATHLON: '🏅', OTHER: '⚡' };
+const INTENSITY_COLORS: Record<string, string> = {
+  easy:     'bg-green-500/15  text-green-400  border-green-500/25',
+  moderate: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25',
+  hard:     'bg-red-500/15    text-red-400    border-red-500/25',
+  max:      'bg-purple-500/15 text-purple-400 border-purple-500/25',
 };
 
 export default async function DashboardPage() {
@@ -138,96 +107,113 @@ export default async function DashboardPage() {
 
   const data = await getDashboardData(session.user.id);
   const m = data.metrics;
-  const wm = data.weekMetrics as Array<{ date: Date | string; bodyBattery: number | null; hrvStatus: number | null; hrvBaseline: number | null; sleepScore: number | null; sleepDuration: number | null; trainingReadiness: number | null }>;
+  const wm = data.weekMetrics as Array<{
+    date: Date | string; bodyBattery: number | null; hrvStatus: number | null;
+    hrvBaseline: number | null; sleepScore: number | null; sleepDuration: number | null; trainingReadiness: number | null;
+  }>;
 
-  // Get today's workouts from plan
   const todayStr = new Date().toISOString().split('T')[0];
   const planData = data.plan?.plan as { days?: Array<{ date: string; workouts: Array<{ title: string; sport: string; duration: number; intensity: string; completed: boolean }>; isRestDay: boolean }> } | null;
-  const todayPlan = planData?.days?.find(d => d.date === todayStr);
+  const todayLegacyPlan = planData?.days?.find(d => d.date === todayStr);
 
-  const SPORT_ICONS: Record<string, string> = { RUN: '🏃', BIKE: '🚴', SWIM: '🏊', STRENGTH: '🏋️', TRIATHLON: '🏅', OTHER: '⚡' };
-  const INTENSITY_COLORS: Record<string, string> = {
-    easy: 'bg-green-500/20 text-green-400',
-    moderate: 'bg-yellow-500/20 text-yellow-400',
-    hard: 'bg-red-500/20 text-red-400',
-    max: 'bg-purple-500/20 text-purple-400',
-  };
+  const trCfg = getTRConfig(m?.trainingReadiness ?? null);
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
-        <div className="text-right">
-          <p className="text-sm text-zinc-400">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100 tracking-tight">Dashboard</h1>
+          <p className="text-zinc-500 text-sm mt-0.5">
             {new Date().toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
-          {data.lastSync && (
-            <p className="text-[10px] text-zinc-500 uppercase tracking-tight">
-              Poslední synchronizace: {new Date(data.lastSync).toLocaleString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </p>
-          )}
         </div>
+        {data.lastSync && (
+          <div className="text-right hidden sm:block">
+            <p className="text-[10px] text-zinc-600 uppercase tracking-wider">Poslední sync</p>
+            <p className="text-xs text-zinc-500">
+              {new Date(data.lastSync).toLocaleString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {/* VO2 Max */}
-        <MetricCard
-          title="VO2 Max"
-          value={m?.vo2max ?? '—'}
-          icon={TrendingUp}
-          color="text-purple-400"
-        />
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">VO2 Max</span>
+            <TrendingUp className="h-3.5 w-3.5 text-purple-400" />
+          </div>
+          <p className="text-2xl font-bold text-zinc-100">{m?.vo2max ?? '—'}</p>
+        </div>
 
         {/* Training Readiness */}
-        <MetricCard
-          title="Training Readiness"
-          value={m?.trainingReadiness ?? '—'}
-          subtitle={getTRLabel(m?.trainingReadiness ?? null)}
-          icon={Zap}
-          color={getBBColor(m?.trainingReadiness ?? null)}
-        />
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Readiness</span>
+            <Zap className={`h-3.5 w-3.5 ${trCfg.color}`} />
+          </div>
+          <div>
+            <span className="text-2xl font-bold text-zinc-100">{m?.trainingReadiness ?? '—'}</span>
+            <span className={`text-xs ml-2 font-medium ${trCfg.color}`}>{trCfg.label}</span>
+          </div>
+          {m?.trainingReadiness && (
+            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div className={`h-1 rounded-full transition-all ${trCfg.bar}`} style={{ width: `${m.trainingReadiness}%` }} />
+            </div>
+          )}
+        </div>
 
         {/* Body Battery */}
-        <MetricCard
-          title="Body Battery"
-          value={m?.bodyBattery ?? '—'}
-          subtitle="/ 100"
-          icon={Battery}
-          color={getBBColor(m?.bodyBattery ?? null)}
-        >
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Body Battery</span>
+            <Battery className={`h-3.5 w-3.5 ${getBBColor(m?.bodyBattery ?? null)}`} />
+          </div>
+          <div>
+            <span className={`text-2xl font-bold ${getBBColor(m?.bodyBattery ?? null)}`}>{m?.bodyBattery ?? '—'}</span>
+            <span className="text-xs text-zinc-500 ml-1">/ 100</span>
+          </div>
           {m?.bodyBatteryChange != null && (
-            <div className="flex items-center gap-1 text-[10px] text-zinc-500 mb-1">
+            <div className="flex items-center gap-1 text-[11px]">
               <TrendingUp className="h-3 w-3 text-green-400" />
-              <span>Body Recovery: +{m.bodyBatteryChange}</span>
+              <span className="text-green-400">+{m.bodyBatteryChange} recovery</span>
             </div>
           )}
           <BodyBatteryChart data={wm.map(d => ({ date: String(d.date), bodyBattery: d.bodyBattery }))} />
-        </MetricCard>
+        </div>
 
         {/* Sleep */}
-        <MetricCard
-          title="Spánek"
-          value={formatSleepDuration(m?.sleepDuration ?? null)}
-          subtitle={m?.sleepScore ? `${m.sleepScore}/100` : undefined}
-          icon={Moon}
-          color="text-blue-400"
-        >
-          <div className="flex gap-1 mt-1">
-            {m?.deepSleep && <div className="h-1.5 rounded-full bg-blue-700" style={{ width: `${Math.min(100, (m.deepSleep / (m.sleepDuration ?? 1)) * 100)}%` }} />}
-            {m?.remSleep && <div className="h-1.5 rounded-full bg-purple-500" style={{ width: `${Math.min(100, (m.remSleep / (m.sleepDuration ?? 1)) * 100)}%` }} />}
-            {m?.lightSleep && <div className="h-1.5 rounded-full bg-blue-400" style={{ width: `${Math.min(100, (m.lightSleep / (m.sleepDuration ?? 1)) * 100)}%` }} />}
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Spánek</span>
+            <Moon className="h-3.5 w-3.5 text-blue-400" />
           </div>
-        </MetricCard>
+          <div>
+            <span className="text-2xl font-bold text-zinc-100">{formatSleepDuration(m?.sleepDuration ?? null)}</span>
+          </div>
+          {m?.sleepScore && (
+            <div className="text-[11px] text-zinc-500">Skóre: <span className="text-blue-400 font-medium">{m.sleepScore}/100</span></div>
+          )}
+          <div className="flex gap-0.5 h-1.5 rounded-full overflow-hidden">
+            {(m as any)?.deepSleep  && <div className="bg-blue-700  rounded-full" style={{ width: `${Math.min(100, ((m as any).deepSleep  / (m?.sleepDuration ?? 1)) * 100)}%` }} />}
+            {(m as any)?.remSleep   && <div className="bg-purple-500 rounded-full" style={{ width: `${Math.min(100, ((m as any).remSleep   / (m?.sleepDuration ?? 1)) * 100)}%` }} />}
+            {(m as any)?.lightSleep && <div className="bg-blue-400  rounded-full" style={{ width: `${Math.min(100, ((m as any).lightSleep / (m?.sleepDuration ?? 1)) * 100)}%` }} />}
+          </div>
+        </div>
 
         {/* HRV */}
-        <MetricCard
-          title="HRV"
-          value={m?.hrvStatus ? `${Math.round(m.hrvStatus)}` : '—'}
-          subtitle="ms"
-          icon={Heart}
-          color="text-pink-400"
-        >
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">HRV</span>
+            <Heart className="h-3.5 w-3.5 text-pink-400" />
+          </div>
+          <div>
+            <span className="text-2xl font-bold text-zinc-100">{m?.hrvStatus ? Math.round(m.hrvStatus) : '—'}</span>
+            <span className="text-xs text-zinc-500 ml-1">ms</span>
+          </div>
           {m?.hrvBaseline && m?.hrvStatus && (
             <div className="flex items-center gap-1 text-xs">
               {m.hrvStatus >= m.hrvBaseline
@@ -236,101 +222,131 @@ export default async function DashboardPage() {
               <span className={m.hrvStatus >= m.hrvBaseline ? 'text-green-400' : 'text-red-400'}>
                 {Math.round(((m.hrvStatus - m.hrvBaseline) / m.hrvBaseline) * 100)}%
               </span>
-              <span className="text-zinc-500 text-[10px]">vs baseline</span>
+              <span className="text-zinc-600 text-[10px]">vs baseline</span>
             </div>
           )}
-        </MetricCard>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's plan */}
-        <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-          <h2 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+      {/* Today's plan + Events */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Today's workouts */}
+        <div className="lg:col-span-2 bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
             <Zap className="h-4 w-4 text-yellow-400" />
-            Dnešní plán
-          </h2>
-          {todayPlan?.isRestDay ? (
-            <div className="text-center py-8 text-zinc-400">
-              <span className="text-2xl">😴</span>
-              <p className="mt-2">Odpočinkový den</p>
-            </div>
-          ) : todayPlan?.workouts && todayPlan.workouts.length > 0 ? (
-            <div className="space-y-3">
-              {todayPlan.workouts.map((w, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg">
-                  <span className="text-2xl">{SPORT_ICONS[w.sport] ?? '⚡'}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-zinc-100">{w.title}</p>
-                    <p className="text-xs text-zinc-400">{Math.floor(w.duration / 60)}h {w.duration % 60}min</p>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${INTENSITY_COLORS[w.intensity] ?? 'bg-zinc-700 text-zinc-300'}`}>
-                    {w.intensity}
-                  </span>
-                  {w.completed && <span className="text-green-400 text-sm">✅</span>}
+            <h2 className="font-bold text-zinc-100 text-sm uppercase tracking-wider">Dnešní plán</h2>
+          </div>
+          <div className="p-5">
+            {/* New system workouts */}
+            {data.plannedWorkouts.length > 0 ? (
+              data.plannedWorkouts.every(w => w.isRestDay) ? (
+                <div className="text-center py-8 text-zinc-500">
+                  <span className="text-3xl block mb-2">🛌</span>
+                  <p className="text-sm">Odpočinkový den</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-zinc-500 text-sm">
-              Žádný plán na dnes. Propoj Garmin/Strava a nech AI vygenerovat plán.
-            </div>
-          )}
+              ) : (
+                <div className="space-y-2">
+                  {data.plannedWorkouts.filter(w => !w.isRestDay).map((w, i) => (
+                    <div key={w.id ?? i} className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/50">
+                      <span className="text-2xl shrink-0">{SPORT_ICONS[w.workoutType ?? 'OTHER'] ?? '⚡'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-zinc-100 truncate">{w.title ?? 'Trénink'}</p>
+                        <p className="text-xs text-zinc-500">{w.durationMinutes} min · {w.workoutType}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : todayLegacyPlan?.isRestDay ? (
+              <div className="text-center py-8 text-zinc-500">
+                <span className="text-3xl block mb-2">🛌</span>
+                <p className="text-sm">Odpočinkový den</p>
+              </div>
+            ) : todayLegacyPlan?.workouts && todayLegacyPlan.workouts.length > 0 ? (
+              <div className="space-y-2">
+                {todayLegacyPlan.workouts.map((w, i) => (
+                  <div key={i} className={`flex items-center gap-3 p-3 rounded-xl border ${INTENSITY_COLORS[w.intensity] ?? 'bg-zinc-800/40 border-zinc-700/50 text-zinc-300'}`}>
+                    <span className="text-2xl shrink-0">{SPORT_ICONS[w.sport] ?? '⚡'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{w.title}</p>
+                      <p className="text-xs opacity-70">{Math.floor(w.duration / 60)}h {w.duration % 60}min · {w.intensity}</p>
+                    </div>
+                    {w.completed && <span className="text-green-400 text-lg">✓</span>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-10 text-zinc-600 text-sm">
+                <Brain className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                <p>Žádný plán na dnes.</p>
+                <p className="text-xs mt-1 text-zinc-700">Propoj Garmin/Strava a nech AI vygenerovat plán.</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Upcoming events */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-          <h2 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+        {/* Events */}
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
             <Trophy className="h-4 w-4 text-yellow-400" />
-            Závody
-          </h2>
-          {data.events.length > 0 ? (
-            <div className="space-y-3">
-              {data.events.map(e => {
-                const daysUntil = Math.ceil((new Date(e.date).getTime() - Date.now()) / 86400000);
-                return (
-                  <div key={e.id} className="p-3 bg-zinc-800/50 rounded-lg">
-                    <p className="text-sm font-medium text-zinc-100">{e.name}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">{e.sport}</p>
-                    <p className="text-lg font-bold text-blue-400 mt-1">{daysUntil}d</p>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500 text-center py-4">Žádné nadcházející závody</p>
-          )}
+            <h2 className="font-bold text-zinc-100 text-sm uppercase tracking-wider">Závody</h2>
+          </div>
+          <div className="p-5">
+            {data.events.length > 0 ? (
+              <div className="space-y-3">
+                {data.events.map(e => {
+                  const daysUntil = Math.ceil((new Date(e.date).getTime() - Date.now()) / 86400000);
+                  return (
+                    <div key={e.id} className="group flex items-center justify-between p-3 bg-zinc-950/40 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-all">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-zinc-100 truncate">{e.name}</p>
+                        <p className="text-xs text-zinc-500 mt-0.5">{e.sport}</p>
+                      </div>
+                      <div className="text-right shrink-0 ml-3">
+                        <p className="text-xl font-black text-blue-500">{daysUntil}</p>
+                        <p className="text-[10px] text-zinc-600 uppercase tracking-widest">dní</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-zinc-600 text-sm">
+                <Trophy className="h-7 w-7 mx-auto mb-2 opacity-20" />
+                <p>Žádné závody</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Today's calendar */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-        <h2 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-blue-400" />
-          Dnešní kalendář
-        </h2>
-        {data.calendar.length > 0 ? (
-          <div className="space-y-2">
+      {/* Calendar */}
+      {data.calendar.length > 0 && (
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-blue-400" />
+            <h2 className="font-bold text-zinc-100 text-sm uppercase tracking-wider">Dnešní kalendář</h2>
+          </div>
+          <div className="p-5 space-y-2">
             {data.calendar.map(ev => (
               <div
                 key={ev.id}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-sm ${CATEGORY_COLORS[ev.category ?? 'personal'] ?? CATEGORY_COLORS.personal}`}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm ${CATEGORY_COLORS[ev.category ?? 'personal'] ?? CATEGORY_COLORS.personal}`}
               >
-                <span className="text-xs font-mono">
+                <span className="text-xs font-mono opacity-70 shrink-0">
                   {new Date(ev.startTime).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}
                   {' – '}
                   {new Date(ev.endTime).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                <span className="font-medium">{ev.title}</span>
-                {ev.location && <span className="text-xs opacity-70 ml-auto">{ev.location}</span>}
+                <span className="font-medium truncate">{ev.title}</span>
+                {ev.location && <span className="text-xs opacity-50 ml-auto shrink-0 hidden sm:block">{ev.location}</span>}
               </div>
             ))}
           </div>
-        ) : (
-          <p className="text-sm text-zinc-500">Žádné události dnes</p>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Daily report */}
+      {/* Morning briefing */}
       <DailyReportSection initialReport={data.report ? (data.report.markdown as string) : null} />
     </div>
   );

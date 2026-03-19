@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Activity } from 'lucide-react';
+import { Activity, Timer, Route, Heart, ChevronRight, TrendingUp } from 'lucide-react';
 import { formatDuration } from '@ai-coach/shared';
 
 type SportFilter = 'ALL' | 'RUN' | 'BIKE' | 'SWIM' | 'STRENGTH';
@@ -27,24 +27,24 @@ interface ActivityItem {
 
 const SPORT_ICONS: Record<string, string> = { RUN: '🏃', BIKE: '🚴', SWIM: '🏊', STRENGTH: '🏋️', TRIATHLON: '🏅', OTHER: '⚡' };
 
+const SPORT_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  RUN:      { bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   text: 'text-blue-400' },
+  BIKE:     { bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  text: 'text-amber-400' },
+  SWIM:     { bg: 'bg-cyan-500/10',   border: 'border-cyan-500/20',   text: 'text-cyan-400' },
+  STRENGTH: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', text: 'text-purple-400' },
+  TRIATHLON:{ bg: 'bg-green-500/10',  border: 'border-green-500/20',  text: 'text-green-400' },
+  OTHER:    { bg: 'bg-zinc-800/60',   border: 'border-zinc-700/50',   text: 'text-zinc-400' },
+};
+
 function formatPaceDisplay(secPerKm: number | null, sport: string): string {
   if (!secPerKm) return '—';
   if (sport === 'SWIM') {
-    const min = Math.floor(secPerKm / 100 / 60);
-    const sec = Math.floor((secPerKm / 100) % 60);
-    return `${min}:${String(sec).padStart(2, '0')}/100m`;
+    const s = secPerKm / 100;
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}/100m`;
   }
-  const min = Math.floor(secPerKm / 60);
-  const sec = Math.floor(secPerKm % 60);
-  return `${min}:${String(sec).padStart(2, '0')}/km`;
+  return `${Math.floor(secPerKm / 60)}:${String(Math.floor(secPerKm % 60)).padStart(2, '0')}/km`;
 }
 
-function getLoadLabel(load: number | null): { label: string; color: string } {
-  if (!load) return { label: '—', color: 'text-zinc-500' };
-  if (load < 50) return { label: 'Easy', color: 'text-green-400' };
-  if (load < 100) return { label: 'Moderate', color: 'text-yellow-400' };
-  return { label: 'Hard', color: 'text-red-400' };
-}
 
 export default function ActivitiesPage() {
   const router = useRouter();
@@ -74,102 +74,210 @@ export default function ActivitiesPage() {
   const totalKm = activities.reduce((s, a) => s + (a.distance ? a.distance / 1000 : 0), 0);
   const totalHours = activities.reduce((s, a) => s + a.duration, 0) / 3600;
 
+  const SPORT_FILTERS: { key: SportFilter; label: string }[] = [
+    { key: 'ALL', label: 'Vše' },
+    { key: 'RUN', label: '🏃 Běh' },
+    { key: 'BIKE', label: '🚴 Kolo' },
+    { key: 'SWIM', label: '🏊 Plavání' },
+    { key: 'STRENGTH', label: '🏋️ Síla' },
+  ];
+
+  const PERIOD_FILTERS: { key: PeriodFilter; label: string }[] = [
+    { key: '7', label: '7 dní' },
+    { key: '30', label: '30 dní' },
+    { key: '90', label: '90 dní' },
+    { key: 'all', label: 'Vše' },
+  ];
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-2">
-        <Activity className="h-5 w-5 text-blue-400" />
-        <h1 className="text-2xl font-bold text-zinc-100">Aktivity</h1>
+    <div className="space-y-6 pb-12">
+      {/* Header */}
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20">
+              <Activity className="h-5 w-5 text-blue-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-zinc-100 tracking-tight">Aktivity</h1>
+          </div>
+          <p className="text-zinc-500 text-sm pl-1">Historie tréninků a výkonnostní data</p>
+        </div>
       </div>
 
-      {/* Summary */}
+      {/* Summary stats */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-center">
-          <p className="text-xl font-bold text-zinc-100">{activities.length}</p>
-          <p className="text-xs text-zinc-400">aktivit</p>
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 text-center">
+          <div className="flex items-center justify-center gap-1.5 mb-1">
+            <Activity className="h-3.5 w-3.5 text-blue-400" />
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Aktivit</span>
+          </div>
+          <p className="text-2xl font-bold text-zinc-100">{activities.length}</p>
         </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-center">
-          <p className="text-xl font-bold text-zinc-100">{totalKm.toFixed(0)} km</p>
-          <p className="text-xs text-zinc-400">celkem</p>
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 text-center">
+          <div className="flex items-center justify-center gap-1.5 mb-1">
+            <Route className="h-3.5 w-3.5 text-green-400" />
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Celkem</span>
+          </div>
+          <p className="text-2xl font-bold text-zinc-100">{totalKm.toFixed(0)} <span className="text-sm font-normal text-zinc-400">km</span></p>
         </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-center">
-          <p className="text-xl font-bold text-zinc-100">{totalHours.toFixed(1)}h</p>
-          <p className="text-xs text-zinc-400">hodin</p>
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 text-center">
+          <div className="flex items-center justify-center gap-1.5 mb-1">
+            <Timer className="h-3.5 w-3.5 text-purple-400" />
+            <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Hodin</span>
+          </div>
+          <p className="text-2xl font-bold text-zinc-100">{totalHours.toFixed(1)} <span className="text-sm font-normal text-zinc-400">h</span></p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
-        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-          {(['ALL', 'RUN', 'BIKE', 'SWIM', 'STRENGTH'] as SportFilter[]).map(s => (
-            <button key={s} onClick={() => setSport(s)} className={`px-2.5 py-1 text-xs rounded-md transition-colors ${sport === s ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-100'}`}>
-              {s === 'ALL' ? 'Vše' : SPORT_ICONS[s]}
+        {/* Sport filter */}
+        <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-xl p-1">
+          {SPORT_FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setSport(f.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                sport === f.key
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+              }`}
+            >
+              {f.label}
             </button>
           ))}
         </div>
-        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-          {(['7', '30', '90', 'all'] as PeriodFilter[]).map(p => (
-            <button key={p} onClick={() => setPeriod(p)} className={`px-2.5 py-1 text-xs rounded-md transition-colors ${period === p ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-100'}`}>
-              {p === 'all' ? 'Vše' : `${p}d`}
+
+        {/* Period filter */}
+        <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-xl p-1">
+          {PERIOD_FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setPeriod(f.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                period === f.key
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+              }`}
+            >
+              {f.label}
             </button>
           ))}
         </div>
-        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+
+        {/* Source filter */}
+        <div className="flex gap-1 bg-zinc-900/50 border border-zinc-800 rounded-xl p-1">
           {(['ALL', 'GARMIN', 'STRAVA'] as SourceFilter[]).map(s => (
-            <button key={s} onClick={() => setSource(s)} className={`px-2.5 py-1 text-xs rounded-md transition-colors ${source === s ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-100'}`}>
-              {s === 'ALL' ? 'Všechny' : s}
+            <button
+              key={s}
+              onClick={() => setSource(s)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                source === s
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+              }`}
+            >
+              {s === 'ALL' ? 'Všechny zdroje' : s}
             </button>
           ))}
         </div>
       </div>
 
-      {/* List */}
+      {/* Activity list */}
       {loading ? (
         <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-16 bg-zinc-900 border border-zinc-800 rounded-lg animate-pulse" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-20 bg-zinc-900/50 border border-zinc-800 rounded-2xl animate-pulse" />
           ))}
         </div>
       ) : activities.length === 0 ? (
-        <div className="text-center py-16 text-zinc-500">
-          <Activity className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p>Žádné aktivity za dané období.</p>
+        <div className="text-center py-20 bg-zinc-900/30 border border-dashed border-zinc-800 rounded-3xl">
+          <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/20 w-fit mx-auto mb-4">
+            <Activity className="h-10 w-10 text-blue-400/50" />
+          </div>
+          <p className="font-semibold text-zinc-400">Žádné aktivity za dané období</p>
+          <p className="text-sm text-zinc-600 mt-1">Zkus změnit filtr nebo synchronizovat Garmin / Strava.</p>
         </div>
       ) : (
         <div className="space-y-2">
           {activities.map(a => {
-            const load = getLoadLabel(a.trainingLoad);
+            const colors = SPORT_COLORS[a.sport] ?? SPORT_COLORS.OTHER!;
+            const loadVal = a.trainingLoad ?? 0;
+            const loadCfg = loadVal === 0
+              ? null
+              : loadVal < 50
+              ? { label: 'Easy',     cls: 'bg-green-500/15  text-green-400  border-green-500/25' }
+              : loadVal < 100
+              ? { label: 'Moderate', cls: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25' }
+              : { label: 'Hard',     cls: 'bg-red-500/15    text-red-400    border-red-500/25' };
+
             return (
               <button
                 key={a.id}
                 onClick={() => router.push(`/activities/${a.id}`)}
-                className="w-full flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-colors text-left"
+                className="group w-full flex items-center gap-4 p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl hover:border-zinc-700 hover:bg-zinc-900/80 transition-all text-left"
               >
-                <span className="text-2xl">{SPORT_ICONS[a.sport] ?? '⚡'}</span>
+                {/* Sport icon */}
+                <div className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl border ${colors.bg} ${colors.border}`}>
+                  {SPORT_ICONS[a.sport] ?? '⚡'}
+                </div>
+
+                {/* Name + date */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-zinc-100 truncate">{a.name ?? a.sport}</p>
-                  <p className="text-xs text-zinc-400">
-                    {new Date(a.date).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'short' })}
+                  <p className="text-sm font-semibold text-zinc-100 truncate group-hover:text-white">
+                    {a.name ?? a.sport}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {new Date(a.date).toLocaleDateString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    {' · '}
+                    <span className={colors.text}>{a.sport}</span>
                   </p>
                 </div>
-                <div className="hidden sm:flex gap-4 text-xs text-zinc-400">
-                  <span>{formatDuration(a.duration)}</span>
-                  {a.distance && <span>{(a.distance / 1000).toFixed(1)} km</span>}
-                  {a.avgHR && <span className="text-red-400">♥ {a.avgHR}</span>}
-                  {a.avgPace && <span>{formatPaceDisplay(a.avgPace, a.sport)}</span>}
+
+                {/* Stats row */}
+                <div className="hidden sm:flex items-center gap-4 text-xs text-zinc-400">
+                  <span className="flex items-center gap-1">
+                    <Timer className="h-3 w-3" />
+                    {formatDuration(a.duration)}
+                  </span>
+                  {a.distance && (
+                    <span className="flex items-center gap-1">
+                      <Route className="h-3 w-3" />
+                      {(a.distance / 1000).toFixed(1)} km
+                    </span>
+                  )}
+                  {a.avgHR && (
+                    <span className="flex items-center gap-1 text-red-400">
+                      <Heart className="h-3 w-3" />
+                      {a.avgHR}
+                    </span>
+                  )}
+                  {a.avgPace && (
+                    <span className="flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" />
+                      {formatPaceDisplay(a.avgPace, a.sport)}
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={`text-xs ${load.color}`}>{load.label}</span>
-                  {a.rawData?.garminActivityId
-                    ? <span className="text-xs text-purple-400">Garmin + Strava</span>
-                    : <span className="text-xs text-zinc-500">{a.source}</span>
-                  }
+
+                {/* Right side: load + source */}
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {loadCfg && (
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${loadCfg.cls}`}>
+                      {loadCfg.label}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-zinc-600 uppercase tracking-wide">
+                    {a.rawData?.garminActivityId ? 'Garmin' : a.source}
+                  </span>
                 </div>
+
+                <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400 transition-colors shrink-0" />
               </button>
             );
           })}
         </div>
       )}
-
     </div>
   );
 }
