@@ -4,9 +4,9 @@ import type {
   GarminHRVData,
   GarminUserSummary,
   GarminActivity,
+  GarminTrainingReadiness,
 } from './types';
 
-// Map Garmin activity type keys to our Sport enum
 const SPORT_MAP: Record<string, string> = {
   running: 'RUN',
   trail_running: 'RUN',
@@ -32,33 +32,16 @@ export function parseSleepToHealthMetric(sleep: GarminSleepData): Record<string,
   const dto = sleep.dailySleepDTO;
   return {
     sleepScore: dto?.sleepScores?.overall?.value ?? null,
-    sleepDuration: dto?.sleepTimeSeconds != null
-      ? Math.floor(dto.sleepTimeSeconds / 60)
-      : null,
-    deepSleep: dto?.deepSleepSeconds != null
-      ? Math.floor(dto.deepSleepSeconds / 60)
-      : null,
-    lightSleep: dto?.lightSleepSeconds != null
-      ? Math.floor(dto.lightSleepSeconds / 60)
-      : null,
-    remSleep: dto?.remSleepSeconds != null
-      ? Math.floor(dto.remSleepSeconds / 60)
-      : null,
-    awakeDuration: dto?.awakeSleepSeconds != null
-      ? Math.floor(dto.awakeSleepSeconds / 60)
-      : null,
-    sleepStart: dto?.sleepStartTimestampLocal
-      ? new Date(dto.sleepStartTimestampLocal)
-      : null,
-    sleepEnd: dto?.sleepEndTimestampLocal
-      ? new Date(dto.sleepEndTimestampLocal)
-      : null,
-    // SpO2 during sleep
+    sleepDuration: dto?.sleepTimeSeconds != null ? Math.floor(dto.sleepTimeSeconds / 60) : null,
+    deepSleep: dto?.deepSleepSeconds != null ? Math.floor(dto.deepSleepSeconds / 60) : null,
+    lightSleep: dto?.lightSleepSeconds != null ? Math.floor(dto.lightSleepSeconds / 60) : null,
+    remSleep: dto?.remSleepSeconds != null ? Math.floor(dto.remSleepSeconds / 60) : null,
+    awakeDuration: dto?.awakeSleepSeconds != null ? Math.floor(dto.awakeSleepSeconds / 60) : null,
+    sleepStart: dto?.sleepStartTimestampLocal ? new Date(dto.sleepStartTimestampLocal) : null,
+    sleepEnd: dto?.sleepEndTimestampLocal ? new Date(dto.sleepEndTimestampLocal) : null,
     spo2Avg: dto?.averageSpO2Value ?? null,
     spo2Min: dto?.lowestSpO2Value ?? null,
-    // Resting HR from sleep data (also available)
     restingHR: sleep.restingHeartRate ?? null,
-    // HRV overnight from sleep
     hrvStatus: sleep.avgOvernightHrv ?? null,
     bodyBatteryChange: sleep.bodyBatteryChange ?? null,
   };
@@ -71,26 +54,62 @@ export function parseHRToHealthMetric(hr: GarminHeartRateData): Record<string, u
 }
 
 export function parseHRVToHealthMetric(hrv: GarminHRVData): Record<string, unknown> {
-  // API returns lastNightAvg (not lastNight)
-  const lastNightAvg = hrv.hrvSummary?.lastNightAvg ?? null;
-  const weeklyAvg = hrv.hrvSummary?.weeklyAvg ?? null;
+  // Garmin uses different field names depending on device/firmware version
+  const lastNightHrv =
+    hrv.hrvSummary?.lastNightAvg ??
+    hrv.hrvSummary?.lastNight ??
+    hrv.hrvSummary?.weeklyAvg ??
+    null;
+
+  console.log('[parseHRVToHealthMetric] raw hrvSummary:', JSON.stringify(hrv.hrvSummary));
+
   return {
-    hrvStatus: lastNightAvg ?? weeklyAvg,
+    hrvStatus: lastNightHrv,
     hrvBaseline: hrv.hrvSummary?.baseline?.balancedLow ?? null,
   };
 }
 
 export function parseUserSummaryToHealthMetric(summary: GarminUserSummary): Record<string, unknown> {
+  const bodyBattery =
+    summary.bodyBatteryMostRecentValue ??
+    summary.bodyBatteryHighestValue ??
+    null;
+
+  const bodyBatteryChange = summary.bodyBatteryChargedValue ?? null;
+
+  console.log('[parseUserSummaryToHealthMetric] bodyBattery:', bodyBattery, '| bodyBatteryChange:', bodyBatteryChange, '| stress:', summary.averageStressLevel);
+
   return {
-    bodyBattery: summary.bodyBatteryMostRecentValue ?? null,
-    bodyBatteryChange: summary.bodyBatteryChargedValue ?? null,
+    bodyBattery,
+    bodyBatteryChange,
     stressScore: summary.averageStressLevel ?? null,
     restingHR: summary.restingHeartRate ?? null,
     spo2Avg: summary.averageSpo2 ?? null,
     spo2Min: summary.lowestSpo2 ?? null,
-    // trainingReadinessScore is NOT available in the daily summary endpoint for this account
-    trainingReadiness: summary.trainingReadinessScore ?? null,
+    // ⚠️ vo2MaxValue is rarely populated in daily summary — mostly null
     vo2max: summary.vo2MaxValue ?? null,
+    // trainingReadinessScore is NOT in daily summary — use parseTrainingReadiness() instead
+  };
+}
+
+/**
+ * Parse Training Readiness from the dedicated training-readiness-service endpoint.
+ */
+export function parseTrainingReadiness(
+  data: GarminTrainingReadiness,
+  date: string,
+): Record<string, unknown> {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { trainingReadiness: null };
+  }
+
+  const entry = data.find(d => d.calendarDate === date) ?? data[0];
+  const score = entry?.trainingReadinessScore ?? entry?.score ?? null;
+
+  console.log('[parseTrainingReadiness] date:', date, '| score:', score, '| raw:', JSON.stringify(entry));
+
+  return {
+    trainingReadiness: score != null ? Math.round(score) : null,
   };
 }
 
@@ -109,12 +128,14 @@ export function mergeHealthMetrics(...parts: Record<string, unknown>[]): Record<
 export function parseGarminActivity(activity: GarminActivity) {
   const sport = parseActivitySport(activity.activityType?.typeKey);
 
-  // Calculate avgPace in sec/km from averageSpeed (m/s)
   let avgPace: number | null = null;
   if (activity.averageSpeed && activity.averageSpeed > 0 && (sport === 'RUN' || sport === 'SWIM')) {
-    avgPace = 1000 / activity.averageSpeed; // sec/km
+    avgPace = 1000 / activity.averageSpeed;
   }
 
+  // NOTE: aerobicTrainingEffect and anaerobicTrainingEffect are NOT in the Prisma Activity schema.
+  // They are returned here so callers can store them in rawData if needed.
+  // Do NOT pass them directly to prisma.activity.create/update.
   return {
     source: 'GARMIN' as const,
     externalId: String(activity.activityId),
@@ -129,9 +150,10 @@ export function parseGarminActivity(activity: GarminActivity) {
     calories: activity.calories ?? null,
     elevationGain: activity.elevationGain ?? null,
     avgCadence: activity.averageCadence ?? null,
+    trainingLoad: activity.trainingStressScore ?? activity.trainingLoad ?? null,
+    // These go into rawData only — not valid Prisma Activity fields
     aerobicTrainingEffect: activity.aerobicTrainingEffect ?? null,
     anaerobicTrainingEffect: activity.anaerobicTrainingEffect ?? null,
-    trainingLoad: activity.trainingStressScore ?? activity.trainingLoad ?? null,
     rawData: activity as unknown as Record<string, unknown>,
   };
 }

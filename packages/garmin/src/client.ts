@@ -12,6 +12,7 @@ import type {
   GarminActivityDetails,
   GarminActivitySplits,
   GarminDailyHeartRate,
+  GarminTrainingReadiness,
 } from './types';
 
 const RATE_LIMIT_MS = 2000;
@@ -40,7 +41,6 @@ export class GarminClient {
 
   async authenticate(): Promise<void> {
     await this.gc.login(this.email, this.password);
-    // Cache display name right after login
     try {
       const profile = await (this.gc as unknown as { getUserProfile: () => Promise<{ displayName: string }> }).getUserProfile();
       this.displayName = profile?.displayName ?? null;
@@ -73,13 +73,11 @@ export class GarminClient {
   async getHRVData(date: string): Promise<GarminHRVData> {
     await this.rateLimit();
     try {
-      // garmin-connect library doesn't have getHRVData — use raw endpoint
       const data = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
         `https://connectapi.garmin.com/hrv-service/hrv/${date}`
       );
       return data as GarminHRVData;
     } catch {
-      // HRV data not always available
       return { calendarDate: date };
     }
   }
@@ -91,6 +89,24 @@ export class GarminClient {
       `https://connectapi.garmin.com/usersummary-service/usersummary/daily/${displayName}?calendarDate=${date}`
     );
     return data as unknown as GarminUserSummary;
+  }
+
+  /**
+   * Training Readiness — separate endpoint, NOT in daily summary.
+   * Returns array of daily readiness scores.
+   */
+  async getTrainingReadiness(date: string): Promise<GarminTrainingReadiness> {
+    await this.rateLimit();
+    const displayName = await this.getDisplayName();
+    try {
+      const data = await (this.gc as unknown as { get: (url: string) => Promise<unknown> }).get(
+        `https://connectapi.garmin.com/training-readiness-service/stats/training-readiness/${displayName}?fromDate=${date}&untilDate=${date}`
+      );
+      return data as GarminTrainingReadiness;
+    } catch (err) {
+      console.warn(`[GarminClient] Training Readiness not available for ${date}:`, (err as Error).message);
+      return [];
+    }
   }
 
   async getActivities(start: number, limit: number): Promise<GarminActivity[]> {

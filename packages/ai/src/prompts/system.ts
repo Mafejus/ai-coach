@@ -51,6 +51,24 @@ interface AgentContext {
     anaerobicTE?: number | null;
     name?: string | null;
   }>;
+  coachContext?: {
+    directives: string;
+    focusAreas: string[];
+    injuryWarnings: string[];
+    overtrainingRisk: string;
+    recoveryStatus: string;
+    hrvTrend: string;
+  } | null;
+  plannedWorkouts?: Array<{
+    date: string;
+    title: string | null;
+    type: string | null;
+    duration: number | null;
+    description: string | null;
+    targetZones: string | null;
+    coachNotes: string | null;
+    isRestDay: boolean;
+  }>;
 }
 
 export function buildSystemPrompt(user: UserProfile, context: AgentContext): string {
@@ -107,6 +125,19 @@ BodyBatteryChange je "Body Recovery" - kolik se tělo přes noc dobilo.
 
 ## POSLEDNÍ TRÉNINKY (7 DNÍ)
 ${context.activities?.length ? JSON.stringify(context.activities, null, 2) : 'Žádné nedávné aktivity.'}
+
+${context.coachContext ? `
+## 🎯 DIREKTIVY OD HLAVNÍHO TRENÉRA (Gemini Pro)
+**Instrukce:** ${context.coachContext.directives}
+**Priority:** ${context.coachContext.focusAreas.join(', ')}
+**Stav:** Riziko: ${context.coachContext.overtrainingRisk}, Recovery: ${context.coachContext.recoveryStatus}, HRV: ${context.coachContext.hrvTrend}
+${context.coachContext.injuryWarnings.length > 0 ? `**VAROVÁNÍ:** ${context.coachContext.injuryWarnings.join('; ')}` : ''}
+` : ''}
+
+${context.plannedWorkouts?.length ? `
+## 📋 PLÁNOVANÉ TRÉNINKY (Dnes a nejbližší dny)
+${context.plannedWorkouts.map(pw => pw.isRestDay ? `- ${pw.date}: ODPOČINEK` : `- ${pw.date}: ${pw.title} (${pw.type}) — ${pw.duration} min — ${pw.targetZones} — ${pw.description} ${pw.coachNotes ? `[Poznámka: ${pw.coachNotes}]` : ''}`).join('\n')}
+` : ''}
 
 ## PRAVIDLA TRÉNOVÁNÍ
 1. Nikdy nepřekroč max ${user.weeklyHoursMax ?? '?'}h/týden.

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   };
 
   // Load user profile and context
-  const [user, events, injuries, latestHealth, recentActivities] = await Promise.all([
+  const [user, events, injuries, latestHealth, recentActivities, coachContext, plannedWorkouts] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.event.findMany({
       where: { userId, date: { gte: new Date() } },
@@ -41,6 +41,15 @@ export async function POST(req: NextRequest) {
       orderBy: { date: 'desc' },
       take: 10,
     }),
+    prisma.activeCoachContext.findUnique({ where: { userId } }),
+    prisma.plannedWorkout.findMany({
+      where: { 
+        userId, 
+        date: { gte: new Date(new Date().setHours(0,0,0,0)) } 
+      },
+      orderBy: { date: 'asc' },
+      take: 3,
+    }),
   ]);
 
   const systemPrompt = buildSystemPrompt(user, {
@@ -56,7 +65,7 @@ export async function POST(req: NextRequest) {
       restingHR: latestHealth.restingHR,
       trainingReadiness: latestHealth.trainingReadiness,
     } : null,
-    activities: recentActivities.map(a => ({
+    activities: recentActivities.map((a: any) => ({
       date: a.date?.toISOString()?.split('T')[0] ?? '',
       sport: a.sport,
       duration: a.duration,
@@ -67,6 +76,24 @@ export async function POST(req: NextRequest) {
       aerobicTE: (a.rawData as any)?.garminRaw?.aerobicTrainingEffect ?? (a.rawData as any)?.aerobicTrainingEffect,
       anaerobicTE: (a.rawData as any)?.garminRaw?.anaerobicTrainingEffect ?? (a.rawData as any)?.anaerobicTrainingEffect,
       name: a.name,
+    })),
+    coachContext: coachContext ? {
+      directives: coachContext.coachDirectives,
+      focusAreas: coachContext.focusAreas,
+      injuryWarnings: coachContext.injuryWarnings,
+      overtrainingRisk: coachContext.overtrainingRisk,
+      recoveryStatus: coachContext.recoveryStatus,
+      hrvTrend: coachContext.hrvTrend,
+    } : null,
+    plannedWorkouts: plannedWorkouts.map((pw: any) => ({
+      date: pw.date?.toISOString()?.split('T')[0] ?? '',
+      title: pw.title,
+      type: pw.workoutType,
+      duration: pw.durationMinutes,
+      description: pw.description,
+      targetZones: pw.targetZones,
+      coachNotes: pw.coachNotes,
+      isRestDay: pw.isRestDay,
     })),
   });
   const tools = createCoachTools(userId);

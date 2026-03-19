@@ -1,8 +1,9 @@
 // prisma/schema.prisma
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/client"
+  provider      = "prisma-client-js"
+  output        = "../src/generated/client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -104,6 +105,10 @@ model User {
   conversations  Conversation[]
   calendarEvents CalendarEvent[]
   invitesCreated Invite[] @relation("InviteCreator")
+
+  weeklyReviews        WeeklyReview[]
+  plannedWorkouts      PlannedWorkout[]
+  activeCoachContext  ActiveCoachContext?
 
   @@map("users")
 }
@@ -318,6 +323,116 @@ model Invite {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
-  @@index([code])
   @@map("invites")
+}
+
+model WeeklyReview {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  weekStart       DateTime @db.Date
+  weekEnd         DateTime @db.Date
+  
+  // Raw data
+  exportedData    Json     // Celý WeeklyExportPayload
+  geminiResponse  Json     // Celý WeeklyAIReview
+  
+  // Parsované pro rychlý přístup
+  overtrainingRisk    String   // "LOW" | "MEDIUM" | "HIGH"
+  recoveryStatus      String
+  coachDirectives     String   @db.Text
+  focusAreas          String[] // Array of strings
+  
+  // Metriky týdne
+  totalPlannedMinutes Int
+  totalActualMinutes  Int?     // Doplní se na konci týdne
+  complianceScore     Float?   // 0-100
+  
+  // Metadata
+  createdAt       DateTime @default(now())
+  appliedAt       DateTime? // Kdy byl plán aplikován
+  
+  // Vygenerované tréninky
+  plannedWorkouts PlannedWorkout[]
+  
+  @@unique([userId, weekStart])
+  @@index([userId, createdAt])
+  @@map("weekly_reviews")
+}
+
+model PlannedWorkout {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  weeklyReviewId  String
+  weeklyReview    WeeklyReview @relation(fields: [weeklyReviewId], references: [id], onDelete: Cascade)
+  
+  // Základní info
+  date            DateTime @db.Date
+  dayOfWeek       String
+  isRestDay       Boolean  @default(false)
+  
+  // Workout detaily (z Gemini)
+  workoutType     String?  // "RUN", "RIDE", "SWIM", etc.
+  subType         String?  // "easy", "tempo", "intervals"
+  title           String?
+  durationMinutes Int?
+  description     String?  @db.Text
+  
+  // Targets
+  targetZones     String?
+  targetPace      String?
+  targetPower     String?
+  targetHR        String?
+  warmup          String?  @db.Text
+  mainSet         String?  @db.Text
+  cooldown        String?  @db.Text
+  coachNotes      String?  @db.Text
+  
+  // Recovery
+  recoveryPlan    Json?
+  
+  // Context
+  dayContext      String?
+  nutritionFocus  String?
+  
+  // Tracking
+  status          String   @default("PLANNED") // PLANNED, COMPLETED, SKIPPED, MODIFIED
+  actualActivityId String? // Propojení s reálnou aktivitou
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([userId, date])
+  @@index([weeklyReviewId])
+  @@map("planned_workouts")
+}
+
+model ActiveCoachContext {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Aktuální direktivy od Gemini
+  coachDirectives     String   @db.Text
+  focusAreas          String[]
+  injuryWarnings      String[]
+  
+  // Aktuální metriky
+  overtrainingRisk    String
+  recoveryStatus      String
+  hrvTrend            String
+  
+  // Reference
+  sourceReviewId      String
+  sourceReviewDate    DateTime
+  
+  // Platnost
+  validUntil          DateTime // Kdy vyprší (další neděle)
+  
+  updatedAt           DateTime @updatedAt
+  
+  @@map("active_coach_contexts")
 }

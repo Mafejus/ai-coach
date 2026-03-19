@@ -33,8 +33,11 @@ export interface GarminHeartRateData {
 export interface GarminHRVData {
   calendarDate: string;
   hrvSummary?: {
-    weeklyAvg: number;
-    lastNightAvg: number;   // Actual field name from API (not lastNight)
+    weeklyAvg?: number;
+    // Garmin API uses different field names depending on device/firmware version.
+    // All known variants are listed here — parsers use the first non-null value.
+    lastNight?: number;        // newer firmware
+    lastNightAvg?: number;     // older firmware / some devices
     lastNight5MinHigh?: number;
     status: string;
     baseline?: {
@@ -64,12 +67,15 @@ export interface GarminUserSummary {
   bodyBatteryMostRecentValue?: number;
   bodyBatteryHighestValue?: number;
   bodyBatteryLowestValue?: number;
+  // Charged = how much was gained during sleep (Body Recovery)
   bodyBatteryChargedValue?: number;
   bodyBatteryDrainedValue?: number;
   // Stress
   averageStressLevel?: number;
   maxStressLevel?: number;
   stressQualifier?: string;
+  stressValuesArray?: Array<[number, number]>;
+  bodyBatteryValuesArray?: Array<[number, number]>;
   // Heart Rate
   restingHeartRate?: number;
   lastSevenDaysAvgRestingHeartRate?: number;
@@ -81,13 +87,30 @@ export interface GarminUserSummary {
   // Activity
   highlyActiveSeconds?: number;
   activeSeconds?: number;
-  // NOTE: trainingReadinessScore is NOT available in daily summary endpoint
+  // NOTE: trainingReadinessScore is NOT in daily summary — use getTrainingReadiness() separately
   trainingReadinessScore?: number;
   vo2MaxValue?: number;
   fitnessAge?: number;
-  measurableAwakeDuration?: number;
-  measurableAsleepDuration?: number;
 }
+
+/**
+ * Training Readiness response from training-readiness-service endpoint.
+ * Returns an array of daily readiness objects.
+ */
+export interface GarminTrainingReadinessDay {
+  calendarDate: string;
+  // Score is 0–100. Field name varies slightly between API versions:
+  trainingReadinessScore?: number;
+  score?: number;
+  // Contributing factors:
+  acuteLoad?: number;
+  sleepScore?: number;
+  recoveryTime?: number;
+  hrv?: number;
+  hrvBaseline?: number;
+}
+
+export type GarminTrainingReadiness = GarminTrainingReadinessDay[];
 
 export interface GarminActivity {
   activityId: number;

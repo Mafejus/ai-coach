@@ -7,6 +7,7 @@ import { resolve } from 'path';
 dotenvConfig({ path: resolve(__dirname, '../../.env'), override: false });
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   transpilePackages: ['@ai-coach/shared', '@ai-coach/ai', '@ai-coach/db'],
   typedRoutes: true,
 };

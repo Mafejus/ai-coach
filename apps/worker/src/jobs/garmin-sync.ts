@@ -7,6 +7,7 @@ import {
   parseHRToHealthMetric,
   parseHRVToHealthMetric,
   parseUserSummaryToHealthMetric,
+  parseTrainingReadiness,
   mergeHealthMetrics,
   parseGarminActivity,
 } from '@ai-coach/garmin';
@@ -105,6 +106,18 @@ async function syncGarminForUser(userId: string, mode: 'quick' | 'full', date?: 
         parts.push(parseUserSummaryToHealthMetric(summaryData));
       } catch (e) {
         console.error(`[garmin-sync] Summary fetch failed for ${d}:`, (e as Error).message);
+      }
+
+      // 5. Training Readiness (via trainingreadiness-service)
+      try {
+        const trData = await client.getTrainingReadiness(d);
+        if (trData) {
+          console.log(`[garmin-sync] TR raw for ${d}:`, JSON.stringify(trData).substring(0, 300));
+          rawData.trainingReadiness = trData;
+          parts.push(parseTrainingReadiness(trData, d));
+        }
+      } catch (e) {
+        console.error(`[garmin-sync] TR fetch failed for ${d}:`, (e as Error).message);
       }
 
       if (parts.length > 0) {

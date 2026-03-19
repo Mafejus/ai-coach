@@ -8,6 +8,7 @@ import {
   parseHRToHealthMetric,
   parseHRVToHealthMetric,
   parseUserSummaryToHealthMetric,
+  parseTrainingReadiness,
   mergeHealthMetrics,
   parseGarminActivity,
 } from '@ai-coach/garmin';
@@ -51,51 +52,81 @@ export async function POST() {
       try {
         console.log(`[garmin-api-sync] Syncing health for ${date}...`);
         
+        const parts: Record<string, unknown>[] = [];
+        const rawData: Record<string, unknown> = {};
+
         // 1. Sleep
-        const sleepData = await client.getSleepData(date);
-        await wait(2000);
+        try {
+          const sleepData = await client.getSleepData(date);
+          rawData.sleep = sleepData;
+          parts.push(parseSleepToHealthMetric(sleepData));
+          await wait(2000);
+        } catch (e) {
+          console.error(`[garmin-api-sync] Sleep failed ${date}:`, (e as Error).message);
+        }
         
         // 2. HR
-        const hrData = await client.getHeartRate(date);
-        await wait(2000);
+        try {
+          const hrData = await client.getHeartRate(date);
+          rawData.heartRate = hrData;
+          parts.push(parseHRToHealthMetric(hrData));
+          await wait(2000);
+        } catch (e) {
+          console.error(`[garmin-api-sync] HR failed ${date}:`, (e as Error).message);
+        }
         
         // 3. HRV
-        const hrvData = await client.getHRVData(date);
-        await wait(2000);
+        try {
+          const hrvData = await client.getHRVData(date);
+          rawData.hrv = hrvData;
+          parts.push(parseHRVToHealthMetric(hrvData));
+          await wait(2000);
+        } catch (e) {
+          console.error(`[garmin-api-sync] HRV failed ${date}:`, (e as Error).message);
+        }
         
-        // 4. User Summary
-        const summaryData = await client.getUserSummary(date);
-        await wait(2000);
+        // 4. User Summary (Body Battery, Stress)
+        try {
+          const summaryData = await client.getUserSummary(date);
+          rawData.userSummary = summaryData;
+          parts.push(parseUserSummaryToHealthMetric(summaryData));
+          await wait(2000);
+        } catch (e) {
+          console.error(`[garmin-api-sync] Summary failed ${date}:`, (e as Error).message);
+        }
 
-        const parts = [
-          parseSleepToHealthMetric(sleepData),
-          parseHRToHealthMetric(hrData),
-          parseHRVToHealthMetric(hrvData),
-          parseUserSummaryToHealthMetric(summaryData),
-        ];
+        // 5. Training Readiness — dedicated endpoint, NOT in daily summary
+        try {
+          const trData = await client.getTrainingReadiness(date);
+          rawData.trainingReadiness = trData;
+          parts.push(parseTrainingReadiness(trData, date));
+          await wait(2000);
+        } catch (e) {
+          console.error(`[garmin-api-sync] TrainingReadiness failed ${date}:`, (e as Error).message);
+        }
 
-        const merged = mergeHealthMetrics(...parts);
-        const rawData = { sleep: sleepData, heartRate: hrData, hrv: hrvData, userSummary: summaryData };
-
-        await prisma.healthMetric.upsert({
-          where: { userId_date: { userId, date: new Date(date) } },
-          update: { ...merged, rawData: rawData as any },
-          create: { userId, date: new Date(date), ...merged, rawData: rawData as any },
-        });
-        healthUpdated++;
+        if (parts.length > 0) {
+          const merged = mergeHealthMetrics(...parts);
+          await prisma.healthMetric.upsert({
+            where: { userId_date: { userId, date: new Date(date) } },
+            update: { ...merged, rawData: rawData as Prisma.InputJsonValue },
+            create: { userId, date: new Date(date), ...merged, rawData: rawData as Prisma.InputJsonValue },
+          });
+          console.log(`[garmin-api-sync] Saved ${date}:`, Object.keys(merged).join(', '));
+          healthUpdated++;
+        }
       } catch (e) {
         console.error(`[garmin-api-sync] Error for date ${date}:`, (e as Error).message);
       }
     }
 
-    // Sync recent activities (last 50 to cover 14+ days)
+    // Sync recent activities (last 50)
     try {
       const activities = await client.getActivities(0, 50);
       for (const raw of activities) {
         try {
           const parsed = parseGarminActivity(raw);
 
-          // Deduplication with Strava or existing activities
           const activityDate = new Date(raw.startTimeLocal);
           const windowMs = 5 * 60 * 1000;
           
@@ -110,7 +141,6 @@ export async function POST() {
           });
 
           if (existing) {
-            // Merge Garmin data into existing activity
             await prisma.activity.update({
               where: { id: existing.id },
               data: {
@@ -119,15 +149,22 @@ export async function POST() {
                 avgCadence: existing.avgCadence ?? parsed.avgCadence,
                 elevationGain: existing.elevationGain ?? parsed.elevationGain,
                 trainingLoad: existing.trainingLoad ?? parsed.trainingLoad,
-                rawData: { ...(existing.rawData as object ?? {}), garminActivityId: parsed.externalId, garminRaw: raw } as any,
+                rawData: { ...(existing.rawData as object ?? {}), garminActivityId: parsed.externalId, garminRaw: raw } as unknown as Prisma.InputJsonValue,
               },
             });
             activitiesUpdated++;
           } else {
+            // Only pass fields that exist in Prisma schema — aerobicTrainingEffect etc. go into rawData only
+            const { aerobicTrainingEffect, anaerobicTrainingEffect, ...activityData } = parsed;
             const data = {
-              ...parsed,
-              sport: parsed.sport as Sport,
-              rawData: { ...(parsed.rawData as object ?? {}), garminRaw: raw } as any,
+              ...activityData,
+              sport: activityData.sport as Sport,
+              rawData: {
+                ...(activityData.rawData as object ?? {}),
+                garminRaw: raw,
+                aerobicTrainingEffect,
+                anaerobicTrainingEffect,
+              } as unknown as Prisma.InputJsonValue,
               userId,
             };
             await prisma.activity.create({ data });

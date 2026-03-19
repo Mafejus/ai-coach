@@ -11,6 +11,7 @@ import {
   Settings,
   FileText,
   Trophy,
+  Brain,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: '/calendar', label: 'Kalendář', icon: CalendarDays },
   { href: '/injuries', label: 'Zranění', icon: AlertTriangle },
   { href: '/reports', label: 'Reporty', icon: FileText },
+  { href: '/weekly-review', label: 'Týdenní Review', icon: Brain },
   { href: '/settings', label: 'Nastavení', icon: Settings },
 ];
 

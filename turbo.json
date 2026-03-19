@@ -5,7 +5,10 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*", "../../.env"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "src/generated/**"]
+    },
+    "postinstall": {
+      "cache": false
     },
     "dev": {
       "cache": false,
@@ -21,6 +24,9 @@
       "cache": false
     },
     "db:migrate": {
+      "cache": false
+    },
+    "migrate:deploy": {
       "cache": false
     }
   }

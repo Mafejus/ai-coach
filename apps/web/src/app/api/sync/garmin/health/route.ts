@@ -7,6 +7,7 @@ import {
   parseHRToHealthMetric,
   parseHRVToHealthMetric,
   parseUserSummaryToHealthMetric,
+  parseTrainingReadiness,
   mergeHealthMetrics,
 } from '@ai-coach/garmin';
 import { Prisma } from '@ai-coach/db';
@@ -45,8 +46,6 @@ export async function POST() {
         const parts: Record<string, unknown>[] = [];
         const rawData: Record<string, unknown> = {};
 
-        // Sequential calls to respect Garmin rate limit (2s between requests)
-
         // 1. Sleep
         try {
           const sleepData = await client.getSleepData(date);
@@ -67,7 +66,7 @@ export async function POST() {
           console.error(`[sync/garmin/health] HR failed ${date}:`, (e as Error).message);
         }
 
-        // 3. HRV (via raw endpoint hrv-service/hrv/DATE)
+        // 3. HRV
         try {
           const hrvData = await client.getHRVData(date);
           console.log(`[sync/garmin/health] HRV raw ${date}:`, JSON.stringify(hrvData).substring(0, 300));
@@ -77,7 +76,7 @@ export async function POST() {
           console.error(`[sync/garmin/health] HRV failed ${date}:`, (e as Error).message);
         }
 
-        // 4. User summary (Body Battery, Stress, Resting HR — via usersummary-service endpoint)
+        // 4. User summary (Body Battery, Stress, Resting HR)
         try {
           const summaryData = await client.getUserSummary(date);
           console.log(`[sync/garmin/health] Summary raw ${date}:`, JSON.stringify(summaryData).substring(0, 500));
@@ -85,6 +84,16 @@ export async function POST() {
           parts.push(parseUserSummaryToHealthMetric(summaryData));
         } catch (e) {
           console.error(`[sync/garmin/health] Summary failed ${date}:`, (e as Error).message);
+        }
+
+        // 5. Training Readiness — dedicated endpoint, NOT in daily summary
+        try {
+          const trData = await client.getTrainingReadiness(date);
+          console.log(`[sync/garmin/health] TrainingReadiness raw ${date}:`, JSON.stringify(trData).substring(0, 300));
+          rawData.trainingReadiness = trData;
+          parts.push(parseTrainingReadiness(trData, date));
+        } catch (e) {
+          console.error(`[sync/garmin/health] TrainingReadiness failed ${date}:`, (e as Error).message);
         }
 
         if (parts.length > 0) {
