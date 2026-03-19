@@ -15,18 +15,18 @@ async function getAllUserIds(): Promise<string[]> {
 }
 
 export async function setupSchedules(queues: Queues): Promise<void> {
-  // Garmin quick sync — every 5 minutes (today's data only)
+  // Garmin quick sync — every 4 hours (today's data only)
   await queues.garminSync.add(
     'scheduled-all',
     { triggerAllUsers: true, mode: 'quick' },
-    { repeat: { pattern: '*/5 * * * *' }, jobId: 'garmin-quick-sync-cron' },
+    { repeat: { pattern: '0 */4 * * *' }, jobId: 'garmin-quick-sync-cron' },
   );
 
-  // Garmin full sync — every 2 hours (last 14 days)
+  // Garmin full sync — every 6 hours (last 14 days)
   await queues.garminSync.add(
     'scheduled-all',
     { triggerAllUsers: true, mode: 'full' },
-    { repeat: { pattern: '0 */2 * * *' }, jobId: 'garmin-full-sync-cron' },
+    { repeat: { pattern: '0 */6 * * *' }, jobId: 'garmin-full-sync-cron' },
   );
 
   // Strava sync — every 30 minutes (rate-limited)
