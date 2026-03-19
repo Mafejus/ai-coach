@@ -3,6 +3,7 @@
 // Rate limit: max 1 request / 2 seconds
 
 import { GarminConnect } from 'garmin-connect';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import type {
   GarminSleepData,
   GarminHeartRateData,
@@ -28,6 +29,18 @@ export class GarminClient {
 
   constructor(private readonly email: string, private readonly password: string) {
     this.gc = new GarminConnect({ username: email, password });
+
+    const proxyUrl = process.env.SCRAPERAPI_PROXY_URL;
+    if (proxyUrl) {
+      console.log('[GarminClient] Using proxy from SCRAPERAPI_PROXY_URL');
+      const agent = new HttpsProxyAgent(proxyUrl);
+      // Access underlying axios instance to inject the proxy agent
+      const axiosClient = (this.gc as any).client?.client;
+      if (axiosClient) {
+        axiosClient.defaults.httpsAgent = agent;
+        axiosClient.defaults.proxy = false; // Disable axios default proxy handling to use the agent
+      }
+    }
   }
 
   private async rateLimit() {

@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@ai-coach/shared": "*",
-    "garmin-connect": "^1.6.2"
+    "garmin-connect": "^1.6.2",
+    "https-proxy-agent": "^8.0.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
