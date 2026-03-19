@@ -1,11 +1,12 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@ai-coach/db';
 import { getMonday, formatDuration } from '@ai-coach/shared';
 import {
   Battery, Moon, Heart, Zap, Calendar, Trophy,
-  TrendingUp, TrendingDown, Activity, Brain,
+  TrendingUp, TrendingDown, Activity, Brain, CheckCircle, ExternalLink,
 } from 'lucide-react';
 import { BodyBatteryChart } from '@/components/charts/BodyBatteryChart';
 import { HRVChart } from '@/components/charts/HRVChart';
@@ -232,26 +233,86 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Today's workouts */}
         <div className="lg:col-span-2 bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
-            <Zap className="h-4 w-4 text-yellow-400" />
-            <h2 className="font-bold text-zinc-100 text-sm uppercase tracking-wider">Dnešní plán</h2>
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-yellow-400" />
+              <h2 className="font-bold text-zinc-100 text-sm uppercase tracking-wider">Dnešní plán</h2>
+            </div>
+            <Link href="/training" className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors">
+              Celý týden <ExternalLink className="h-3 w-3" />
+            </Link>
           </div>
           <div className="p-5">
-            {/* New system workouts */}
             {data.plannedWorkouts.length > 0 ? (
               data.plannedWorkouts.every(w => w.isRestDay) ? (
                 <div className="text-center py-8 text-zinc-500">
                   <span className="text-3xl block mb-2">🛌</span>
-                  <p className="text-sm">Odpočinkový den</p>
+                  <p className="text-sm font-medium text-zinc-400">Odpočinkový den</p>
+                  <p className="text-xs text-zinc-600 mt-1">Regenerace je součást tréninku.</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {data.plannedWorkouts.filter(w => !w.isRestDay).map((w, i) => (
-                    <div key={w.id ?? i} className="flex items-center gap-3 p-3 bg-zinc-800/40 rounded-xl border border-zinc-700/50">
-                      <span className="text-2xl shrink-0">{SPORT_ICONS[w.workoutType ?? 'OTHER'] ?? '⚡'}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-zinc-100 truncate">{w.title ?? 'Trénink'}</p>
-                        <p className="text-xs text-zinc-500">{w.durationMinutes} min · {w.workoutType}</p>
+                    <div key={w.id ?? i} className={`rounded-xl border overflow-hidden ${INTENSITY_COLORS[w.subType?.toLowerCase() ?? ''] ?? 'bg-zinc-800/40 border-zinc-700/50 text-zinc-300'}`}>
+                      {/* Header */}
+                      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
+                        <span className="text-2xl shrink-0">{SPORT_ICONS[w.workoutType ?? 'OTHER'] ?? '⚡'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-zinc-100 leading-tight">{w.title ?? 'Trénink'}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs opacity-70">{w.durationMinutes} min</span>
+                            {w.subType && <span className="text-xs opacity-60 uppercase tracking-wide">· {w.subType}</span>}
+                            {w.workoutType && <span className="text-xs opacity-50">· {w.workoutType}</span>}
+                          </div>
+                        </div>
+                        {w.status === 'COMPLETED' && <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />}
+                      </div>
+                      {/* Body */}
+                      <div className="px-4 py-3 space-y-3">
+                        {w.description && (
+                          <p className="text-xs text-zinc-300 leading-relaxed">{w.description}</p>
+                        )}
+                        {(w.warmup || w.mainSet || w.cooldown) && (
+                          <div className="space-y-1.5 text-xs">
+                            {w.warmup && (
+                              <div className="flex gap-2">
+                                <span className="text-zinc-600 w-20 shrink-0">Rozcvička</span>
+                                <span className="text-zinc-400 leading-relaxed">{w.warmup}</span>
+                              </div>
+                            )}
+                            {w.mainSet && (
+                              <div className="flex gap-2">
+                                <span className="text-zinc-600 w-20 shrink-0">Hlavní část</span>
+                                <span className="text-zinc-200 font-medium leading-relaxed">{w.mainSet}</span>
+                              </div>
+                            )}
+                            {w.cooldown && (
+                              <div className="flex gap-2">
+                                <span className="text-zinc-600 w-20 shrink-0">Zklidnění</span>
+                                <span className="text-zinc-400 leading-relaxed">{w.cooldown}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {(w.targetPace || w.targetHR || w.targetPower || w.targetZones) && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {w.targetZones && <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-zinc-400">Zóny: {w.targetZones}</span>}
+                            {w.targetPace && <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-zinc-400">Tempo: {w.targetPace}</span>}
+                            {w.targetHR && <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-zinc-400">TF: {w.targetHR}</span>}
+                            {w.targetPower && <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-zinc-400">Výkon: {w.targetPower}</span>}
+                          </div>
+                        )}
+                        {w.coachNotes && (
+                          <div className="p-2.5 rounded-lg bg-black/20 border border-white/5">
+                            <p className="text-[11px] text-zinc-400 italic leading-relaxed">💬 {w.coachNotes}</p>
+                          </div>
+                        )}
+                        {w.dayContext && (
+                          <p className="text-[11px] text-zinc-600 italic">{w.dayContext}</p>
+                        )}
+                        {w.nutritionFocus && (
+                          <p className="text-[11px] text-zinc-500">🥗 {w.nutritionFocus}</p>
+                        )}
                       </div>
                     </div>
                   ))}
