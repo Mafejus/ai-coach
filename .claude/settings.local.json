@@ -13,7 +13,11 @@
       "Bash(npx next:*)",
       "Bash(cat:*)",
       "Bash(npx tsx:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill //F //IM node.exe)"
     ]
   }
 }
