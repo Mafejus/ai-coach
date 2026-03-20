@@ -122,18 +122,6 @@ export class GarminClient {
     this.savedSessionJson = options?.savedSession ?? null;
     this.onSessionChangeCb = options?.onSessionChange;
 
-    // Listen for session changes to persist them
-    if (this.onSessionChangeCb) {
-      (this.gc as any).onSessionChange(async (session: unknown) => {
-        try {
-          const json = JSON.stringify(session);
-          this.savedSessionJson = json;
-          await this.onSessionChangeCb?.(json);
-        } catch (e) {
-          console.error('[GarminClient] Failed to persist session change:', e);
-        }
-      });
-    }
   }
 
   private async rateLimit() {
