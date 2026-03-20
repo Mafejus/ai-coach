@@ -35,7 +35,7 @@ export async function POST() {
       savedSession: user.garminSession,
       onSessionChange: async (sessionJson: string) => {
         await prisma.user.update({
-          where: { id: session.user.id },
+          where: { id: session.user!.id },
           data: { garminSession: sessionJson },
         }).catch((e) => console.error('[sync/garmin/health] Session save failed:', e));
       },
@@ -46,7 +46,7 @@ export async function POST() {
     const sessionJson = client.getSessionJson();
     if (sessionJson) {
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user!.id },
         data: { garminSession: sessionJson },
       }).catch(() => {});
     }
