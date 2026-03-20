@@ -34,7 +34,7 @@ export class GarminClient {
     const proxyUrl = process.env.SCRAPERAPI_PROXY_URL || process.env.GARMIN_PROXY_URL;
     if (proxyUrl) {
       console.log('[GarminClient] Using proxy from environment');
-      const agent = new HttpsProxyAgent(proxyUrl);
+      const agent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
       // Access underlying axios instance to inject the proxy agent
       const axiosClient = (this.gc as any).client?.client;
       if (axiosClient) {
