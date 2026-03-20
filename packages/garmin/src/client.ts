@@ -124,7 +124,7 @@ export class GarminClient {
 
     // Listen for session changes to persist them
     if (this.onSessionChangeCb) {
-      this.gc.onSessionChange(async (session: unknown) => {
+      (this.gc as any).onSessionChange(async (session: unknown) => {
         try {
           const json = JSON.stringify(session);
           this.savedSessionJson = json;
