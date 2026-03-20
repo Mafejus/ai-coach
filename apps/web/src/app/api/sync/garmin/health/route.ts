@@ -22,7 +22,7 @@ export async function POST() {
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },
-    select: { garminEmail: true, garminPassword: true },
+    select: { garminEmail: true, garminPassword: true, garminSession: true },
   });
 
   if (!user.garminEmail || !user.garminPassword) {
@@ -31,8 +31,25 @@ export async function POST() {
 
   try {
     const password = decrypt(user.garminPassword);
-    const client = new GarminClient(user.garminEmail, password);
+    const client = new GarminClient(user.garminEmail, password, {
+      savedSession: user.garminSession,
+      onSessionChange: async (sessionJson: string) => {
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: { garminSession: sessionJson },
+        }).catch((e) => console.error('[sync/garmin/health] Session save failed:', e));
+      },
+    });
     await client.authenticate();
+
+    // Persist session after successful auth
+    const sessionJson = client.getSessionJson();
+    if (sessionJson) {
+      await prisma.user.update({
+        where: { id: session.user.id },
+        data: { garminSession: sessionJson },
+      }).catch(() => {});
+    }
 
     let healthUpdated = 0;
 

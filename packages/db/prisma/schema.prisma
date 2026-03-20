@@ -83,6 +83,7 @@ model User {
 
   garminEmail  String?
   garminPassword String?
+  garminSession  String?   @db.Text  // Persisted Garmin Connect session JSON for session restore
   stravaTokens Json?
   googleTokens Json?
   googleTokens2 Json?

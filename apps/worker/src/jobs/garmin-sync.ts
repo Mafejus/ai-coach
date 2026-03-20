@@ -37,7 +37,7 @@ async function syncGarminForUser(userId: string, mode: 'quick' | 'full', date?: 
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { garminEmail: true, garminPassword: true },
+    select: { garminEmail: true, garminPassword: true, garminSession: true },
   });
 
   if (!user?.garminEmail || !user.garminPassword) {
@@ -46,8 +46,25 @@ async function syncGarminForUser(userId: string, mode: 'quick' | 'full', date?: 
   }
 
   const password = await decryptPassword(user.garminPassword);
-  const client = new GarminClient(user.garminEmail, password);
+  const client = new GarminClient(user.garminEmail, password, {
+    savedSession: user.garminSession,
+    onSessionChange: async (sessionJson: string) => {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { garminSession: sessionJson },
+      }).catch((e) => console.error('[garmin-sync] Session save failed:', e));
+    },
+  });
   await client.authenticate();
+
+  // Persist session after successful auth (belt & suspenders)
+  const sessionJson = client.getSessionJson();
+  if (sessionJson) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { garminSession: sessionJson },
+    }).catch(() => {}); // Non-critical
+  }
 
   const today = toISODate(new Date());
   const yesterday = toISODate(new Date(Date.now() - 86400_000));
