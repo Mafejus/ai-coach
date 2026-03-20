@@ -9,8 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleDetection": "force",
-    "isolatedModules": true,
-    "moduleResolution": "bundler"
+    "isolatedModules": true
   },
   "exclude": ["node_modules"]
 }

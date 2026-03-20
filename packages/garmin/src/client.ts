@@ -3,6 +3,7 @@
 // Rate limit: max 1 request / 2 seconds
 
 import { GarminConnect } from 'garmin-connect';
+// @ts-ignore
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type {
   GarminSleepData,
